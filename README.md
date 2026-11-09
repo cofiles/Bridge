@@ -38,7 +38,7 @@ The current Android APK is signed with a development key. Desktop packages are n
 3. Select a server and press **Подключить** (Connect).
 4. Approve the operating-system permission when prompted.
 
-The interface currently uses Russian labels. On Windows, configure the application you want to route through the HTTP proxy `127.0.0.1:10809`. Remove that setting when you disconnect. macOS configures its system proxy automatically. Applications that ignore system proxy settings may use a direct connection.
+Choose Russian or English in Settings → Language. The selection is saved on your device. On Windows, configure the application you want to route through the HTTP proxy `127.0.0.1:10809`. Remove that setting when you disconnect. macOS configures its system proxy automatically. Applications that ignore system proxy settings may use a direct connection.
 
 The timer and traffic total cover the current session. Traffic is the sum of uploaded and downloaded bytes measured by Xray. Disconnecting preserves the last displayed totals until the next connection.
 

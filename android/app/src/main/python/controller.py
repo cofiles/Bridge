@@ -42,6 +42,26 @@ class Bridge:
                 return {"error": "Не удалось сохранить палитру."}
             return {"name": name}
 
+    def language(self, name=None):
+        path = self._settings.with_name("language")
+        with self._lock:
+            if name is None:
+                try:
+                    name = path.read_text(encoding="ascii")
+                except (OSError, UnicodeError):
+                    name = "ru"
+                return {"name": name if name in ("ru", "en") else "ru"}
+            if name not in ("ru", "en"):
+                return {"error": "Unknown language."}
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+                    output.write(name.encode("ascii"))
+                os.replace(output.name, path)
+            except OSError:
+                return {"error": "Could not save language."}
+            return {"name": name}
+
     def servers(self):
         with self._lock:
             return {"names": list(self._nodes)}

@@ -19,10 +19,44 @@ h2{font-size:21px;margin:0 0 16px}.palette{width:100%;padding:11px 14px;border-r
 <div id="home"><section class="metrics" aria-label="Статистика сеанса"><div class="metric"><div class="metric-head">Время сеанса</div><div class="value" id="timer">00:00:00</div></div><div class="metric"><div class="metric-head">Трафик</div><div class="value" id="traffic">0 Б</div></div></section>
 <label for="url">Ссылка подписки</label><input id="url" type="url" placeholder="https://…" autocomplete="off" spellcheck="false"><div class="buttons"><button class="soft" id="paste">Вставить</button><button class="soft" id="load">Загрузить</button></div>
 <label class="server" for="nodes">Сервер</label><select disabled id="nodes"><option>Загрузите подписку</option></select><button class="action" id="action" disabled><span id="verb">Подключить</span></button><p class="note" role="status" id="note"></p></div>
-<section hidden id="settings"><h2>Палитра</h2><div id="colors"></div><p class="note" role="status" id="settingNote"></p></section>
+<section hidden id="settings"><label for="language">Язык</label><select id="language" style="margin-bottom:20px"><option value="ru">Русский</option><option value="en">English</option></select><h2>Палитра</h2><div id="colors"></div><p class="note" role="status" id="settingNote"></p></section>
 </main><script>
 const el=id=>document.getElementById(id);
 let api,busy=true,active=false,loaded=false,polling=false;
+let language='ru';
+const translations={"Подключение": "Connection", "Настройки": "Settings", "Время сеанса": "Session time", "Трафик": "Traffic", "Ссылка подписки": "Subscription URL", "Вставить": "Paste", "Загрузить": "Load", "Сервер": "Server", "Загрузите подписку": "Load a subscription", "Подключить": "Connect", "Отключить": "Disconnect", "Подключено": "Connected", "Отключено": "Disconnected", "Палитра": "Palette", "Язык": "Language", "Шалфей": "Sage", "Океан": "Ocean", "Сирень": "Lilac", "Терракота": "Clay", "Роза": "Rose", "Песок": "Sand", "Отключаем…": "Disconnecting…", "Подключаем…": "Connecting…", "Загружаем подписку…": "Loading subscription…", "Пропущено записей: ": "Skipped entries: ", "VPN включён": "VPN enabled", "Системный прокси": "System proxy", "HTTP-прокси": "HTTP proxy", "Не удалось выполнить действие. Повторите попытку.": "Could not complete the action. Please try again.", "Введите HTTPS-ссылку на подписку.": "Enter an HTTPS subscription URL.", "Не удалось загрузить подписку. Проверьте адрес и сеть.": "Could not load the subscription. Check the URL and connection.", "Отключите мост перед сменой подписки.": "Disconnect before changing the subscription.", "Выберите сервер из подписки.": "Select a server from your subscription.", "Не удалось запустить мост.": "Could not start Bridge.", "Соединение прервано.": "Connection interrupted.", "Неизвестная палитра.": "Unknown palette.", "Не удалось сохранить палитру.": "Could not save the palette.", "Не удалось прочитать буфер обмена.": "Could not read the clipboard.", "В буфере нет текста.": "The clipboard contains no text.", "Проверьте формат подписки.": "Check the subscription format.", "В подписке нет поддерживаемых серверов VLESS или Trojan.": "The subscription contains no supported VLESS or Trojan servers.", "Ожидается список ссылок VLESS или Trojan, текстом или в Base64.": "Expected VLESS or Trojan links in plain text or Base64.", "Подписка больше 4 МБ.": "The subscription exceeds 4 MB.", "Подписка перенаправляет на незащищённый адрес.": "The subscription redirects to an insecure URL.", "Сервис подписки вернул ошибку HTTP ": "Subscription service returned HTTP error ", "Android не создал VPN-интерфейс.": "Android could not create the VPN interface.", "Не удалось запустить ядро VPN.": "Could not start the VPN core.", "Ядро VPN не отвечает.": "The VPN core is not responding.", "Не удалось запустить VPN.": "Could not start the VPN.", "Разрешение VPN отклонено.": "VPN permission was denied.", "Проверьте параметры.": "Check the settings.", "Недоступное действие.": "Action unavailable.", "Xray не открыл порт. Проверьте параметры выбранного сервера.": "Xray could not open the port. Check the selected server settings.", "Порт ": "Port ", " занят. Закройте другой прокси и повторите.": " is busy. Close the other proxy and try again.", "Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.": "Xray is missing. Run python setup_core.py in the project folder.", "macOS не включила системный прокси. Проверьте активное подключение и разрешите изменение настроек сети.": "macOS could not enable the system proxy. Check your network and allow changes to network settings.", "Проверьте настройки прокси активной сети в macOS: восстановление прервалось.": "Check the active network proxy settings in macOS. Restoration was interrupted."};
+const originalText=new WeakMap();
+function translated(text){
+ let result=text;
+ for(const [ru,en] of Object.entries(translations).sort((a,b)=>b[0].length-a[0].length))
+  result=result.split(ru).join(en);
+ return result;
+}
+function translatePage(){
+ const walker=document.createTreeWalker(document.querySelector('main'),NodeFilter.SHOW_TEXT);
+ let node;
+ while(node=walker.nextNode()){
+  // Server names and pasted data belong to the subscription.
+  if(node.parentElement.closest('#nodes,#url'))continue;
+  const previous=originalText.get(node);
+  let source=node.nodeValue;
+  if(previous && (source===previous.rendered || source===previous.source))source=previous.source;
+  const rendered=language==='en'?translated(source):source;
+  originalText.set(node,{source,rendered});
+  if(node.nodeValue!==rendered)node.nodeValue=rendered;
+ }
+ if(!loaded && el('nodes').options.length){const text=language==='en'?'Load a subscription':'Загрузите подписку';if(el('nodes').options[0].text!==text)el('nodes').options[0].text=text;}
+}
+function setLanguage(name){
+ language=name==='en'?'en':'ru';document.documentElement.lang=language;
+ el('language').value=language;translatePage();
+}
+new MutationObserver(translatePage).observe(document.querySelector('main'),{subtree:true,childList:true,characterData:true});
+el('language').onchange=async()=>{
+ if(!api)return;
+ const result=await api.language(el('language').value);
+ if(result.error)el('settingNote').textContent=result.error;else setLanguage(result.name);
+};
 const colors={sage:['Шалфей',149],ocean:['Океан',210],lilac:['Сирень',271],clay:['Терракота',18],rose:['Роза',340],sand:['Песок',48]};
 function applyPalette(id){
  if(!colors[id])id='sage';
@@ -42,8 +76,8 @@ function render(s){
  if(typeof s.active==='boolean'){
  active=s.active;document.body.classList.toggle('online',active);el('state').textContent=active?'Подключено':'Отключено';el('verb').textContent=active?'Отключить':'Подключить';
  const t=s.seconds;el('timer').textContent=[Math.floor(t/3600),Math.floor(t/60)%60,t%60].map(n=>String(n).padStart(2,'0')).join(':');
- let n=s.bytes,i=0,units=['Б','КБ','МБ','ГБ','ТБ'];while(n>=1000&&i<4){n/=1000;i++}
- el('traffic').textContent=s.fresh===false?'—':n.toLocaleString('ru-RU',{maximumFractionDigits:i&&n<100?1:0})+' '+units[i];
+ let n=s.bytes,i=0,units=language==='en'?['B','KB','MB','GB','TB']:['Б','КБ','МБ','ГБ','ТБ'];while(n>=1000&&i<4){n/=1000;i++}
+ el('traffic').textContent=s.fresh===false?'—':n.toLocaleString(language==='en'?'en-US':'ru-RU',{maximumFractionDigits:i&&n<100?1:0})+' '+units[i];
  }if(s.error)el('note').textContent=s.error;controls()
 }
 async function run(work){
@@ -69,7 +103,7 @@ el('action').onclick=()=>run(async()=>{
 el('paste').onclick=()=>run(async()=>{const s=await api.paste();if(s.error){render(s);return}el('url').value=s.text.trim();el('note').textContent=''});
 async function ready(backend){
  api=backend;
- try{applyPalette((await api.palette(null)).name);
+ try{setLanguage((await api.language(null)).name);applyPalette((await api.palette(null)).name);
  const s=await api.servers();if(s.names.length){el('nodes').replaceChildren(...s.names.map(n=>new Option(n,n)));loaded=true}
  render(await api.snapshot())}finally{busy=false;controls()}
  setInterval(async()=>{if(busy||!active||polling)return;polling=true;try{const s=await api.snapshot();if(!busy&&active)render(s)}finally{polling=false}},1000)

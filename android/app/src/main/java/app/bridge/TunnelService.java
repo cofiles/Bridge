@@ -15,7 +15,7 @@ public class TunnelService extends VpnService {
   manager.createNotificationChannel(new NotificationChannel("vpn","Bridge VPN",NotificationManager.IMPORTANCE_LOW));
   PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE);
   startForeground(1,new Notification.Builder(this,"vpn").setContentTitle("Bridge")
-   .setContentText("VPN подключение").setSmallIcon(R.drawable.icon)
+   .setContentText("Bridge VPN").setSmallIcon(R.drawable.icon)
    .setContentIntent(open).setOngoing(true).build());
   if(intent!=null)Backend.work.execute(()->{
    ResultReceiver receiver=intent.getParcelableExtra("receiver");

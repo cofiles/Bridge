@@ -39,6 +39,7 @@ class Bridge:
         self._wanted = None
         self._error = None
         self._retry_at = 0
+        self._retry_failures = 0
         self._network = None
         self._low_battery = False
         self._wake = threading.Event()
@@ -87,7 +88,7 @@ class Bridge:
                 except Exception:
                     pass
             if retry:
-                self.connect(retry)
+                self.connect(retry, automatic=True)
             self._wake.wait(interval)
             self._wake.clear()
 
@@ -151,10 +152,12 @@ class Bridge:
             self._metadata = metadata
         return {"names": list(nodes), "skipped": skipped}
 
-    def connect(self, name):
+    def connect(self, name, automatic=False):
         with self._lock:
             if self._closed or self._connection or self._attempt or name not in self._nodes:
                 return {"error":"Select a server or wait for cleanup."}
+            if not automatic:
+                self._retry_failures = 0
             attempt = Attempt()
             self._attempt = attempt
             self._wanted = name
@@ -171,6 +174,7 @@ class Bridge:
                     connection.started = time.monotonic()
                     self._connection = connection
                     connection = None
+                    self._retry_failures = 0
                     self._seconds = self._bytes = 0
                     self._previous_sample = None
                     self._rates = {"upload":0,"download":0}
@@ -179,12 +183,19 @@ class Bridge:
                 pass
             except Exception as error:
                 with self._lock:
-                    self._error = str(error) if isinstance(error,(ProxyError,ValueError)) else "Connection check failed."
+                    self._error = str(error) if isinstance(error,(ProxyError,ValueError)) else "Не удалось запустить подключение. Попробуйте другой сервер."
+                    self._retry_failures += 1
+                    if not automatic or self._retry_failures >= 3:
+                        self._wanted = None
                     self._retry_at = time.monotonic()+15
             finally:
                 try:
                     if connection:
                         connection.close()
+                except Exception:
+                    with self._lock:
+                        self._wanted = None
+                        self._error = "Не удалось восстановить настройки сети после ошибки подключения."
                 finally:
                     with self._lock:
                         self._attempt = None
@@ -193,21 +204,35 @@ class Bridge:
 
     @staticmethod
     def _check_access(port, attempt):
-        client = http.client.HTTPConnection("127.0.0.1",port,timeout=3)
-        attempt.client = client
-        try:
+        failures = []
+        context = ssl.create_default_context(cafile=certifi.where())
+        for host in ("www.gstatic.com", "cp.cloudflare.com"):
             attempt.check()
-            client.request("GET","http://www.gstatic.com/generate_204",headers={"Connection":"close"})
-            response = client.getresponse()
-            if response.status != 204:
-                raise ValueError("Internet access check failed.")
-            attempt.check()
-        except Exception:
-            attempt.check()
-            raise
-        finally:
-            attempt.client = None
-            client.close()
+            client = http.client.HTTPSConnection("127.0.0.1", port, timeout=8, context=context)
+            client.set_tunnel(host, 443)
+            attempt.client = client
+            try:
+                attempt.check()
+                client.request("GET", "/generate_204", headers={"Connection":"close"})
+                response = client.getresponse()
+                attempt.check()
+                if response.status == 204:
+                    return
+                failures.append(f"HTTP_{response.status}")
+            except ssl.SSLError:
+                attempt.check()
+                failures.append("TLS_ERROR")
+            except TimeoutError:
+                attempt.check()
+                failures.append("TIMEOUT")
+            except (OSError, http.client.HTTPException):
+                attempt.check()
+                failures.append("PROXY_UNREACHABLE")
+            finally:
+                attempt.client = None
+                client.close()
+        attempt.check()
+        raise ValueError("Нет доступа через выбранный сервер. Попробуйте другой сервер. [" + ", ".join(failures) + "]")
 
     def cancel(self):
         with self._lock:
@@ -264,6 +289,7 @@ class Bridge:
         return {"reconnecting": bool(self._wanted and not self._connection and not self._attempt), "connecting": self._attempt is not None, "stage": self._attempt.stage if self._attempt else "", "error":self._error, "auto_power_active":self._low_battery,
                 "active": bool(self._connection), "seconds": self._seconds, "bytes": self._bytes,
                 "rates": self._rates, "subscription": self._metadata, "warnings": self._warnings(),
+                "retry_in": max(0, int(self._retry_at-time.monotonic())+1) if self._wanted and not self._connection and not self._attempt else 0,
                 "port": self._connection.port if self._connection else PORT, "mac": sys.platform == "darwin"}
 
     def _stop(self):

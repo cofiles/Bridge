@@ -106,7 +106,7 @@ Bridge's author has not selected a source-code license yet. Public source availa
 
 ## Connection recovery and background mode
 
-Bridge retries the selected server after a detected interruption. Cancel or Disconnect stops retries. Startup verifies internet access through the proxy using Google's HTTP 204 endpoint; networks blocking this endpoint may fail the check.
+Bridge retries the selected server after a detected interruption. Cancel or Disconnect stops retries. Startup verifies HTTPS access through the proxy, using Google and Cloudflare endpoints with an 8-second socket timeout each. Failed manual connections stop with an error; automatic reconnection makes at most three attempts.
 
 On desktop, “Keep running in background” minimizes the window when you close it. Reopen it through the Dock or taskbar. On Android, the setting controls Back-button behavior; background VPN uses an ongoing foreground-service notification. System force-stop always ends the service.
 

@@ -12,6 +12,8 @@ public class MainActivity extends Activity {
  String pendingName;
  @Override public void onCreate(Bundle state) {
   super.onCreate(state);
+  if(android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED)
+   requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},2);
   Backend.module().callAttr("init", getFilesDir().toString());
   view=new WebView(this);
   view.getSettings().setJavaScriptEnabled(true);
@@ -65,10 +67,14 @@ public class MainActivity extends Activity {
     if(permission!=null)startActivityForResult(permission,1);else startTunnel();
     return;
    }
+   if(method.equals("cancel")){
+    new Thread(()->reply(id,Backend.module().callAttr("call","cancel","[]").toString())).start();
+    return;
+   }
    Backend.work.execute(()->{
     try { reply(id,Backend.module().callAttr("call",method,args).toString()); }
     catch(Exception e){reply(id,"{\"error\":\"Не удалось выполнить действие.\"}");}
-    if(method.equals("disconnect"))stopService(new Intent(this,TunnelService.class));
+    if(method.equals("disconnect")||method.equals("reset"))stopService(new Intent(this,TunnelService.class));
    });
   }catch(Exception e){reply(id,"{\"error\":\"Проверьте параметры.\"}");}
  }
@@ -78,6 +84,18 @@ public class MainActivity extends Activity {
    @Override protected void onReceiveResult(int code,Bundle data) { reply(id,data.getString("result")); }
   };
   startForegroundService(new Intent(this,TunnelService.class).putExtra("name",pendingName).putExtra("receiver",receiver));
+ }
+ @Override public void onBackPressed() {
+  Backend.work.execute(()->{
+   try {
+    org.json.JSONObject preferences=new org.json.JSONObject(Backend.module().callAttr("call","preferences","[]").toString());
+    if(!preferences.optString("close_behavior","stop").equals("background")){
+     Backend.module().callAttr("call","disconnect","[]");
+     stopService(new Intent(this,TunnelService.class));
+    }
+   }catch(Exception ignored){}
+   runOnUiThread(()->finish());
+  });
  }
  @Override protected void onActivityResult(int request,int result,Intent data) {
   super.onActivityResult(request,result,data);

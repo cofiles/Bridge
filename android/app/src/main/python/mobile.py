@@ -9,19 +9,25 @@ from pathlib import Path
 from controller import Bridge
 from connection import Connection
 from bridge import configuration, stop
+from lifecycle import Attempt
 
 api = None
 service = None
 
 class Tunnel(Connection):
-    def __init__(self, outbound):
+    def __init__(self, outbound, attempt=None):
+        attempt = attempt or Attempt()
+        attempt.progress("creating_tunnel")
         self.helper = None
-        self.port = 0
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1",0))
+            self.port = listener.getsockname()[1]
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             self.metrics_port = sock.getsockname()[1]
-        config = configuration(outbound, metrics_port=self.metrics_port)
-        config["inbounds"] = [{"tag": "bridge", "protocol": "tun", "settings": {"name": "bridge0", "mtu": 1500}}]
+        config = configuration(outbound, port=self.port, metrics_port=self.metrics_port)
+        config["inbounds"][0]["tag"] = "test"
+        config["inbounds"] += [{"tag": "bridge", "protocol": "tun", "settings": {"name": "bridge0", "mtu": 1500}}]
         self.device = service.openTunnel()
         if self.device is None:
             raise ValueError("Android не создал VPN-интерфейс.")
@@ -35,7 +41,9 @@ class Tunnel(Connection):
             with self.core.stdin as output:
                 output.write(json.dumps(config).encode())
             self.started = time.monotonic()
+            attempt.progress("starting_core")
             for _ in range(60):
+                attempt.check()
                 if self.core.poll() is not None:
                     self.errors.seek(0)
                     diagnostic = self.errors.read(65536).decode("utf-8", errors="replace")
@@ -83,9 +91,10 @@ def init(directory):
 def connect(vpn, name):
     global service
     service = vpn
+    api._notify = lambda message: service.alert(message)
     return json.dumps(api.connect(name))
 
 def call(method, args):
-    if method not in ("load", "palette", "snapshot", "disconnect", "servers", "language", "preferences", "favorite", "undo", "report", "reset"):
+    if method not in ("load", "palette", "snapshot", "disconnect", "servers", "language", "preferences", "favorite", "undo", "report", "reset", "cancel", "speed_test", "environment"):
         return json.dumps({"error":"Недоступное действие."})
     return json.dumps(getattr(api, method)(*json.loads(args)))

@@ -4,6 +4,8 @@ import socket
 import time
 import subprocess
 import sys
+import threading
+from lifecycle import Attempt
 
 from bridge import BINARY, PORT, start, stop
 
@@ -13,7 +15,9 @@ class ProxyError(Exception):
 
 
 class Connection:
-    def __init__(self, outbound):
+    def __init__(self, outbound, attempt=None):
+        attempt = attempt or Attempt()
+        attempt.progress("starting_core")
         self.port = PORT
         with socket.socket() as metrics:
             metrics.bind(("127.0.0.1", 0))
@@ -22,7 +26,7 @@ class Connection:
                 with socket.socket() as probe:
                     probe.bind(("127.0.0.1", 0))
                     self.port = probe.getsockname()[1]
-        self.core = start(outbound, self.port, self.metrics_port)
+        self.core = start(outbound, self.port, self.metrics_port, attempt)
         self.helper = None
         if sys.platform == "darwin":
             try:
@@ -30,10 +34,24 @@ class Connection:
                     [str(BINARY.with_name("bridge-proxy")), str(self.port)],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 )
-                if self.helper.stdout.readline().strip() != b"READY":
+                attempt.progress("configuring_system")
+                ready = threading.Event()
+                response = []
+                def read_ready():
+                    response.append(self.helper.stdout.readline().strip())
+                    ready.set()
+                threading.Thread(target=read_ready, daemon=True).start()
+                while not ready.wait(.1):
+                    if attempt.event.is_set():
+                        self.helper.stdin.close()
+                    attempt.check()
+                attempt.check()
+                if response[0] != b"READY":
                     self.close()
                     raise ProxyError("macOS не включила системный прокси. Проверьте активное подключение и разрешите изменение настроек сети.")
             except BaseException:
+                if self.helper and not self.helper.stdin.closed:
+                    self.helper.stdin.close()
                 stop(self.core)
                 raise
 
@@ -46,8 +64,10 @@ class Connection:
             response = client.getresponse()
             if response.status != 200:
                 return None
-            inbound = json.load(response)["stats"]["inbound"]["bridge"]
-            return {"upload": int(inbound["uplink"]), "download": int(inbound["downlink"])}
+            inbounds = json.load(response)["stats"]["inbound"]
+            selected = [inbounds[tag] for tag in ("bridge","test") if tag in inbounds]
+            return {"upload": sum(int(v["uplink"]) for v in selected),
+                    "download": sum(int(v["downlink"]) for v in selected)}
         except (OSError, http.client.HTTPException, ValueError, TypeError, KeyError):
             return None
         finally:

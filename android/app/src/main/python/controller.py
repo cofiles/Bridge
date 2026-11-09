@@ -7,6 +7,11 @@ import tempfile
 import hashlib
 from activity_store import ActivityStore
 from urllib.error import HTTPError
+from lifecycle import Attempt, Cancelled
+import socket
+import ssl
+import http.client
+import certifi
 
 
 from bridge import PORT, load_subscription
@@ -30,16 +35,61 @@ class Bridge:
         self._fresh = True
         self._rates = {"upload": 0, "download": 0}
         self._undo = None
+        self._attempt = None
+        self._wanted = None
+        self._error = None
+        self._retry_at = 0
+        self._network = None
+        self._low_battery = False
+        self._wake = threading.Event()
+        self._notified = set()
+        self._notify = lambda message: None
         self._monitor = threading.Thread(target=self._monitor_usage, daemon=True)
         self._monitor.start()
 
+    def environment(self, network, low_battery=False):
+        with self._lock:
+            changed = self._network is not None and network != self._network
+            self._network = network
+            self._low_battery = bool(low_battery)
+            if changed and self._wanted and not self._attempt:
+                self._stop()
+                self._retry_at = time.monotonic()+2
+        self._wake.set()
+        return {"ok":True}
+
     def _monitor_usage(self):
+        previous = time.time()
         while not self._closed:
+            retry = None
+            notifications = []
             with self._lock:
-                if self._connection and self._connection.running():
-                    self._fresh = self._sample()
-                interval = 5 if self._store.get("settings", {}).get("power_saving") else 1
-            time.sleep(interval)
+                now = time.monotonic()
+                if self._connection:
+                    if not self._connection.running() or time.time()-previous > 20:
+                        self._stop()
+                        self._retry_at = now+2
+                    else:
+                        self._fresh = self._sample()
+                if self._wanted and not self._connection and not self._attempt and now >= self._retry_at:
+                    retry = self._wanted
+                    self._retry_at = now+15
+                for message in self._warnings():
+                    if message not in self._notified:
+                        self._notified.add(message)
+                        notifications.append(message)
+                settings = self._store.get("settings", {})
+                interval = 5 if settings.get("power_saving") or (settings.get("auto_power",True) and self._low_battery) else 1
+                previous = time.time()
+            for message in notifications:
+                try:
+                    self._notify(message)
+                except Exception:
+                    pass
+            if retry:
+                self.connect(retry)
+            self._wake.wait(interval)
+            self._wake.clear()
 
     def palette(self, name=None):
         choices = ("sage", "ocean", "lilac", "clay", "rose", "sand")
@@ -95,7 +145,7 @@ class Bridge:
         except OSError:
             return {"error": "Не удалось загрузить подписку. Проверьте адрес и сеть."}
         with self._lock:
-            if self._closed or self._connection:
+            if self._closed or self._connection or self._attempt:
                 return {"error": "Отключите мост перед сменой подписки."}
             self._nodes = nodes
             self._metadata = metadata
@@ -103,19 +153,96 @@ class Bridge:
 
     def connect(self, name):
         with self._lock:
-            if self._closed or self._connection or name not in self._nodes:
-                return {"error": "Выберите сервер из подписки."}
+            if self._closed or self._connection or self._attempt or name not in self._nodes:
+                return {"error":"Select a server or wait for cleanup."}
+            attempt = Attempt()
+            self._attempt = attempt
+            self._wanted = name
+            self._error = None
+            outbound = self._nodes[name]
+        def work():
+            connection = None
             try:
-                self._connection = self._connect(self._nodes[name])
-            except (ProxyError, ValueError) as error:
-                return {"error": str(error)}
-            except OSError:
-                return {"error": "Не удалось запустить мост."}
-            self._seconds, self._bytes = 0, 0
-            self._previous_sample = None
-            self._rates = {"upload": 0, "download": 0}
-            self._session = self._store.begin(name, time.time())
+                connection = self._connect(outbound, attempt)
+                attempt.progress("checking_access")
+                self._check_access(connection.port, attempt)
+                with self._lock:
+                    attempt.check()
+                    self._connection = connection
+                    connection = None
+                    self._seconds = self._bytes = 0
+                    self._previous_sample = None
+                    self._rates = {"upload":0,"download":0}
+                    self._session = self._store.begin(name,time.time())
+            except Cancelled:
+                pass
+            except Exception as error:
+                with self._lock:
+                    self._error = str(error) if isinstance(error,(ProxyError,ValueError)) else "Connection check failed."
+                    self._retry_at = time.monotonic()+15
+            finally:
+                try:
+                    if connection:
+                        connection.close()
+                finally:
+                    with self._lock:
+                        self._attempt = None
+        threading.Thread(target=work,daemon=True).start()
+        return self._snapshot()
+
+    @staticmethod
+    def _check_access(port, attempt):
+        client = http.client.HTTPConnection("127.0.0.1",port,timeout=3)
+        attempt.client = client
+        try:
+            attempt.check()
+            client.request("GET","http://www.gstatic.com/generate_204",headers={"Connection":"close"})
+            response = client.getresponse()
+            if response.status != 204:
+                raise ValueError("Internet access check failed.")
+            attempt.check()
+        except Exception:
+            attempt.check()
+            raise
+        finally:
+            attempt.client = None
+            client.close()
+
+    def cancel(self):
+        with self._lock:
+            self._wanted = None
+            if self._attempt:
+                self._attempt.cancel()
             return self._snapshot()
+
+    def speed_test(self):
+        with self._lock:
+            if not self._connection:
+                return {"error":"Connect before running a speed test."}
+            port = self._connection.port
+        limit = 8*1024*1024
+        client = http.client.HTTPSConnection("127.0.0.1",port,timeout=5,
+                    context=ssl.create_default_context(cafile=certifi.where()))
+        client.set_tunnel("speed.cloudflare.com",443)
+        received = 0
+        started = time.monotonic()
+        try:
+            client.request("GET",f"/__down?bytes={limit}")
+            response = client.getresponse()
+            if response.status != 200:
+                return {"error":"Speed test service unavailable."}
+            while received < limit:
+                chunk = response.read(min(65536,limit-received))
+                if not chunk:
+                    break
+                received += len(chunk)
+                if time.monotonic()-started > 30:
+                    break
+            return {"bytes":received,"mbps":received*8/max(.001,time.monotonic()-started)/1e6}
+        except (OSError,http.client.HTTPException):
+            return {"error":"Speed test failed."}
+        finally:
+            client.close()
 
     def _sample(self):
         self._seconds = int(time.monotonic() - self._connection.started)
@@ -133,7 +260,8 @@ class Bridge:
         return counts is not None
 
     def _snapshot(self):
-        return {"active": bool(self._connection), "seconds": self._seconds, "bytes": self._bytes,
+        return {"reconnecting": bool(self._wanted and not self._connection and not self._attempt), "connecting": self._attempt is not None, "stage": self._attempt.stage if self._attempt else "", "error":self._error, "auto_power_active":self._low_battery,
+                "active": bool(self._connection), "seconds": self._seconds, "bytes": self._bytes,
                 "rates": self._rates, "subscription": self._metadata, "warnings": self._warnings(),
                 "port": self._connection.port if self._connection else PORT, "mac": sys.platform == "darwin"}
 
@@ -166,6 +294,7 @@ class Bridge:
             return {**self._snapshot(), "fresh": fresh}
 
     def disconnect(self):
+        self.cancel()
         with self._lock:
             if self._connection:
                 self._sample()
@@ -182,7 +311,7 @@ class Bridge:
         return messages
 
     def preferences(self, updates=None):
-        defaults = {"presentation":False,"power_saving":False,"scale":100,"pinned":[]}
+        defaults = {"auto_power":True,"close_behavior":"stop","presentation":False,"power_saving":False,"scale":100,"pinned":[]}
         with self._lock:
             current = {**defaults, **self._store.get("settings",{})}
             if updates is not None:
@@ -190,10 +319,12 @@ class Bridge:
                     return {"error":"Invalid preferences."}
                 if "scale" in updates and updates["scale"] not in (100,115,130,150):
                     return {"error":"Invalid scale."}
-                for key in ("presentation","power_saving"):
+                if "close_behavior" in updates and updates["close_behavior"] not in ("stop","background"):
+                    return {"error":"Invalid close behavior."}
+                for key in ("presentation","power_saving","auto_power"):
                     if key in updates and type(updates[key]) is not bool:
                         return {"error":"Invalid preference."}
-                if "pinned" in updates and (not isinstance(updates["pinned"],list) or any(x not in ("presentation","power_saving","scale","language","palette") for x in updates["pinned"])):
+                if "pinned" in updates and (not isinstance(updates["pinned"],list) or any(x not in ("presentation","power_saving","scale","language","palette","auto_power","close_behavior") for x in updates["pinned"])):
                     return {"error":"Invalid pinned settings."}
                 self._undo = ("settings",current,time.monotonic()+15)
                 current = {**current,**updates}
@@ -226,7 +357,10 @@ class Bridge:
         return self._store.report()
 
     def reset(self):
+        self.cancel()
         with self._lock:
+            if self._attempt:
+                return {"error":"Wait for connection cleanup, then reset."}
             message = self._stop()
             if message:
                 return {"error":message}
@@ -240,6 +374,7 @@ class Bridge:
             return {"ok":True}
 
     def _close_window(self):
+        self.cancel()
         with self._lock:
             self._closed = True
             self._stop()

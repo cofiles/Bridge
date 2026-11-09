@@ -13,6 +13,10 @@ A compact subscription client built with Python and Xray. Material You-inspired 
 - Import HTTPS subscriptions containing plain-text or Base64 VLESS and Trojan links.
 - TCP, WebSocket and gRPC transports, with TLS and VLESS REALITY support.
 - Six color palettes, a clipboard button, connection timer and traffic counter.
+- Cancellable connection attempts with visible startup stages.
+- Reconnection after detected sleep, underlying network changes or core exit.
+- Close behavior options, subscription notifications and automatic low-battery sampling.
+- An optional Cloudflare download test capped at 8 MiB of response payload.
 - System HTTP/HTTPS proxy integration on macOS.
 - Android VPN service with a dark interface and system-bar insets.
 - Windowed Windows executable with an embedded Python runtime and Xray core.
@@ -98,3 +102,14 @@ Report the operating system, application version, steps to reproduce and exact e
 Bridge's author has not selected a source-code license yet. Public source availability alone does not grant a general reuse license. Review [third-party components](docs/THIRD_PARTY.md) before redistribution. Xray, Python, pywebview, Chaquopy and other dependencies retain their own licenses.
 
 [Russian publishing guide](docs/PUBLISHING.ru.md)
+
+
+## Connection recovery and background mode
+
+Bridge retries the selected server after a detected interruption. Cancel or Disconnect stops retries. Startup verifies internet access through the proxy using Google's HTTP 204 endpoint; networks blocking this endpoint may fail the check.
+
+On desktop, “Keep running in background” minimizes the window when you close it. Reopen it through the Dock or taskbar. On Android, the setting controls Back-button behavior; background VPN uses an ongoing foreground-service notification. System force-stop always ends the service.
+
+Battery saving uses a 20% threshold while unplugged. Subscription alerts depend on OS notification permissions and provider metadata from the last subscription load. The speed test contacts Cloudflare only after confirmation and caps downloaded response payload at 8 MiB; protocol overhead is additional.
+
+These lifecycle paths have automated checks, but device-specific sleep, Android background restrictions and native notification presentation still need validation on actual devices.

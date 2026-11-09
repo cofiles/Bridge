@@ -132,7 +132,7 @@ def stop(process):
             process.wait()
 
 
-def start(outbound, port=PORT, metrics_port=None):
+def start(outbound, port=PORT, metrics_port=None, attempt=None):
     if not BINARY.is_file():
         raise ValueError("Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.")
     with socket.socket() as probe:
@@ -150,6 +150,8 @@ def start(outbound, port=PORT, metrics_port=None):
             stream.write(json.dumps(configuration(outbound, port, metrics_port)).encode())
         deadline = time.monotonic() + 5
         while process.poll() is None and time.monotonic() < deadline:
+            if attempt:
+                attempt.check()
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=0.1):
                     return process

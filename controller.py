@@ -168,6 +168,7 @@ class Bridge:
                 self._check_access(connection.port, attempt)
                 with self._lock:
                     attempt.check()
+                    connection.started = time.monotonic()
                     self._connection = connection
                     connection = None
                     self._seconds = self._bytes = 0

@@ -3,6 +3,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+if sys.platform == "win32" and len(sys.argv) == 4 and sys.argv[1] == "--proxy-watch":
+    from windows_proxy import watch
+    watch(int(sys.argv[2]), sys.argv[3])
+    raise SystemExit(0)
+
 import webview
 import threading
 import time
@@ -60,6 +65,13 @@ if __name__ == "__main__":
     root = Path(__file__).resolve().parent
     settings = (Path.home() / "Library/Application Support" if sys.platform == "darwin"
                 else Path(os.environ["LOCALAPPDATA"])) / "Bridge"
+    if sys.platform == "win32":
+        from windows_proxy import WindowsProxy
+        try:
+            recovery = WindowsProxy()
+            recovery.close()
+        except OSError:
+            pass  # Active instance or recovery failure; connect reports the error.
     api = DesktopBridge(settings)
     window = webview.create_window("Bridge", html=(root / "assets/bridge.html").read_text(encoding="utf-8"),
                                    js_api=api, width=474, height=628, min_size=(360, 500),

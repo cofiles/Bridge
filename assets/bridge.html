@@ -73,6 +73,18 @@ const el=id=>document.getElementById(id);
 let preferences={power_saving:false,pinned:[]},lastPoll=0;
 let api,busy=true,active=false,connecting=false,loaded=false,polling=false;
 let language='ru';
+let timerSeconds=0,timerAnchor=performance.now(),timerRunning=false;
+function paintTimer(){
+ const seconds=Math.floor(timerSeconds+(timerRunning?(performance.now()-timerAnchor)/1000:0));
+ el('timer').textContent=[Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(n=>String(n).padStart(2,'0')).join(':');
+}
+function syncTimer(s){
+ const elapsed=timerSeconds+(timerRunning?(performance.now()-timerAnchor)/1000:0);
+ timerSeconds=s.active&&timerRunning?Math.max(elapsed,s.seconds||0):(s.seconds||0);
+ timerRunning=!!s.active;timerAnchor=performance.now();paintTimer();
+}
+setInterval(paintTimer,250);
+document.addEventListener('visibilitychange',paintTimer);
 const translations={"Режим демонстрации включён. Личные данные скрыты.":"Presentation mode is on. Personal data is hidden.","Показать данные":"Show data","Настройки не найдены":"No settings found","Автоэкономия при заряде до 20%":"Automatic power saving below 20%","При закрытии":"When closing","Отключить VPN":"Disconnect VPN","Продолжить в фоне":"Keep running in background","Запускаем ядро…":"Starting core…","Создаём туннель…":"Creating tunnel…","Настраиваем систему…":"Configuring system…","Проверяем доступ…":"Checking internet access…","Отменить":"Cancel","Тест скорости · 8 MiB":"Speed test · 8 MiB","Режим демонстрации":"Presentation mode","Энергосбережение":"Power saving","Масштаб":"Interface scale","Отменить изменение":"Undo change","Сбросить данные":"Reset data","Избранное":"Favorite","Статистика и история":"Usage and history","Подключение": "Connection", "Настройки": "Settings", "Время сеанса": "Session time", "Трафик": "Traffic", "Ссылка подписки": "Subscription URL", "Вставить": "Paste", "Загрузить": "Load", "Сервер": "Server", "Загрузите подписку": "Load a subscription", "Подключить": "Connect", "Отключить": "Disconnect", "Подключено": "Connected", "Отключено": "Disconnected", "Палитра": "Palette", "Язык": "Language", "Шалфей": "Sage", "Океан": "Ocean", "Сирень": "Lilac", "Терракота": "Clay", "Роза": "Rose", "Песок": "Sand", "Отключаем…": "Disconnecting…", "Подключаем…": "Connecting…", "Загружаем подписку…": "Loading subscription…", "Пропущено записей: ": "Skipped entries: ", "VPN включён": "VPN enabled", "Системный прокси": "System proxy", "HTTP-прокси": "HTTP proxy", "Не удалось выполнить действие. Повторите попытку.": "Could not complete the action. Please try again.", "Введите HTTPS-ссылку на подписку.": "Enter an HTTPS subscription URL.", "Не удалось загрузить подписку. Проверьте адрес и сеть.": "Could not load the subscription. Check the URL and connection.", "Отключите мост перед сменой подписки.": "Disconnect before changing the subscription.", "Выберите сервер из подписки.": "Select a server from your subscription.", "Не удалось запустить мост.": "Could not start Bridge.", "Соединение прервано.": "Connection interrupted.", "Неизвестная палитра.": "Unknown palette.", "Не удалось сохранить палитру.": "Could not save the palette.", "Не удалось прочитать буфер обмена.": "Could not read the clipboard.", "В буфере нет текста.": "The clipboard contains no text.", "Проверьте формат подписки.": "Check the subscription format.", "В подписке нет поддерживаемых серверов VLESS или Trojan.": "The subscription contains no supported VLESS or Trojan servers.", "Ожидается список ссылок VLESS или Trojan, текстом или в Base64.": "Expected VLESS or Trojan links in plain text or Base64.", "Подписка больше 4 МБ.": "The subscription exceeds 4 MB.", "Подписка перенаправляет на незащищённый адрес.": "The subscription redirects to an insecure URL.", "Сервис подписки вернул ошибку HTTP ": "Subscription service returned HTTP error ", "Android не создал VPN-интерфейс.": "Android could not create the VPN interface.", "Не удалось запустить ядро VPN.": "Could not start the VPN core.", "Ядро VPN не отвечает.": "The VPN core is not responding.", "Не удалось запустить VPN.": "Could not start the VPN.", "Разрешение VPN отклонено.": "VPN permission was denied.", "Проверьте параметры.": "Check the settings.", "Недоступное действие.": "Action unavailable.", "Xray не открыл порт. Проверьте параметры выбранного сервера.": "Xray could not open the port. Check the selected server settings.", "Порт ": "Port ", " занят. Закройте другой прокси и повторите.": " is busy. Close the other proxy and try again.", "Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.": "Xray is missing. Run python setup_core.py in the project folder.", "macOS не включила системный прокси. Проверьте активное подключение и разрешите изменение настроек сети.": "macOS could not enable the system proxy. Check your network and allow changes to network settings.", "Проверьте настройки прокси активной сети в macOS: восстановление прервалось.": "Check the active network proxy settings in macOS. Restoration was interrupted."};
 const originalText=new WeakMap();
 function translated(text){
@@ -130,7 +142,7 @@ function render(s){
  connecting=!!(s.connecting||s.reconnecting);
  if(typeof s.active==='boolean'){
  active=s.active;document.body.classList.toggle('online',active);el('state').textContent=active?'Подключено':'Отключено';el('verb').textContent=active?'Отключить':'Подключить';
- const t=s.seconds;el('timer').textContent=[Math.floor(t/3600),Math.floor(t/60)%60,t%60].map(n=>String(n).padStart(2,'0')).join(':');
+ syncTimer(s);
  let n=s.bytes,i=0,units=language==='en'?['B','KB','MB','GB','TB']:['Б','КБ','МБ','ГБ','ТБ'];while(n>=1000&&i<4){n/=1000;i++}
  el('traffic').textContent=s.fresh===false?'—':n.toLocaleString(language==='en'?'en-US':'ru-RU',{maximumFractionDigits:i&&n<100?1:0})+' '+units[i];
  }
@@ -164,7 +176,7 @@ el('action').onclick=()=>run(async()=>{
  if(connecting){render(await api.cancel());return}
  el('state').textContent=active?'Отключаем…':'Подключаем…';
  const s=active?await api.disconnect():await api.connect(el('nodes').value);
- el('state').textContent='Отключено';el('note').textContent=s.active?(window.BridgeNative?'VPN включён':(s.mac?'Системный прокси':'HTTP-прокси')+' · 127.0.0.1:'+s.port):'';
+ el('state').textContent='Отключено';el('note').textContent=s.active?(window.BridgeNative?'VPN включён':'Системный прокси'+' · 127.0.0.1:'+s.port):'';
  render(s);
 });
 el('paste').onclick=()=>run(async()=>{const s=await api.paste();if(s.error){render(s);return}el('url').value=s.text.trim();el('note').textContent=''});

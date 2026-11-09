@@ -22,12 +22,13 @@ class Connection:
         with socket.socket() as metrics:
             metrics.bind(("127.0.0.1", 0))
             self.metrics_port = metrics.getsockname()[1]
-            if sys.platform == "darwin":
+            if sys.platform in ("darwin", "win32"):
                 with socket.socket() as probe:
                     probe.bind(("127.0.0.1", 0))
                     self.port = probe.getsockname()[1]
         self.core = start(outbound, self.port, self.metrics_port, attempt)
         self.helper = None
+        self.windows_proxy = None
         if sys.platform == "darwin":
             try:
                 self.helper = subprocess.Popen(
@@ -55,6 +56,22 @@ class Connection:
                 stop(self.core)
                 raise
 
+        if sys.platform == "win32":
+            try:
+                from windows_proxy import WindowsProxy
+                attempt.progress("configuring_system")
+                self.windows_proxy = WindowsProxy()
+                self.windows_proxy.enable(self.port)
+                attempt.check()
+            except BaseException as error:
+                try:
+                    if self.windows_proxy:
+                        self.windows_proxy.close()
+                finally:
+                    stop(self.core)
+                if isinstance(error, OSError):
+                    raise ProxyError("Windows system proxy setup failed: " + str(error)) from error
+                raise
         self.started = time.monotonic()
 
     def counters(self):
@@ -89,4 +106,11 @@ class Connection:
                 if code == 4 or code < 0:
                     raise ProxyError("Проверьте настройки прокси активной сети в macOS: восстановление прервалось.")
         finally:
-            stop(self.core)
+            try:
+                if self.windows_proxy:
+                    try:
+                        self.windows_proxy.close()
+                    except OSError as error:
+                        raise ProxyError("Windows proxy restoration failed: " + str(error)) from error
+            finally:
+                stop(self.core)

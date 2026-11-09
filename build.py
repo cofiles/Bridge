@@ -20,8 +20,10 @@ if sys.platform == "darwin":
 
 subprocess.run([
     sys.executable, "-m", "PyInstaller", "--noconfirm", "--windowed", "--name", "Bridge",
+    "--copy-metadata", "pystray",
     "--icon", str(root / "assets" / ("bridge.ico" if os.name == "nt" else "bridge.icns")),
     "--workpath", str(root / "build" / sys.platform),
     "--onefile" if os.name == "nt" else "--onedir", "--add-data", f"assets/bridge.html{os.pathsep}assets",
+    "--add-data", f"assets/bridge-icon.png{os.pathsep}assets",
     "--add-binary", f"{BINARY}{os.pathsep}bin", *extra, "app.py",
 ], cwd=root, check=True)

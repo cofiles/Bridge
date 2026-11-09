@@ -113,3 +113,15 @@ On desktop, “Keep running in background” minimizes the window when you close
 Battery saving uses a 20% threshold while unplugged. Subscription alerts depend on OS notification permissions and provider metadata from the last subscription load. The speed test contacts Cloudflare only after confirmation and caps downloaded response payload at 8 MiB; protocol overhead is additional.
 
 These lifecycle paths have automated checks, but device-specific sleep, Android background restrictions and native notification presentation still need validation on actual devices.
+
+### Server tools (v1.3)
+
+Choose **Auto select · quality** to probe up to four matching candidates before connecting. Selection combines recent HTTPS latency, successful/failed checks, and unexpected session drops. Results are stored locally. It is an estimate based on this device's history, not a guarantee of future performance.
+
+Expand **Server filters** to filter by country label, protocol, transport, subscription source, and last check result. Countries are inferred from flags or recognized tokens in server names, not from IP geolocation. Missing information is shown as Unknown. The current client loads one subscription at a time.
+
+The desktop tray/menu-bar icon provides Open, Auto connect, server switching, Disconnect, and Quit. Closing to background hides the window; the tray restores it. Launching Bridge again activates the existing window. Android reuses its existing activity.
+
+Possible VPN conflicts are advisory: tunnel adapters and known VPN processes are hints, not proof. Review the warning before proceeding. Configuration validation runs before system proxy/TUN changes. Core startup and verified internet access are shown separately.
+
+Per-application split tunneling is not included in this release.

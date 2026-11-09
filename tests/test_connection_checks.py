@@ -60,6 +60,7 @@ class StateTests(unittest.TestCase):
         self.api._close_window()
         self.api._wake.set()
         self.api._monitor.join(timeout=2)
+        self.api._store.db.close()
         self.directory.cleanup()
 
     def settle(self):

@@ -10,7 +10,7 @@ import certifi
 
 root = Path(__file__).resolve().parent
 destination = root / "android/app/src/main"
-for name in ("lifecycle.py", "activity_store.py", "bridge.py", "controller.py", "connection.py"):
+for name in ("quality.py", "lifecycle.py", "activity_store.py", "bridge.py", "controller.py", "connection.py"):
     shutil.copy2(root / name, destination / "python" / name)
 shutil.copy2(root / "assets/bridge-icon.png", destination / "res/drawable/icon.png")
 url = "https://github.com/XTLS/Xray-core/releases/download/v26.10.31/Xray-android-arm64-v8a.zip"

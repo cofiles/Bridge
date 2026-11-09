@@ -14,7 +14,9 @@ import http.client
 import certifi
 
 
-from bridge import PORT, load_subscription
+from bridge import PORT, load_subscription, start, stop
+import quality
+from urllib.parse import urlsplit
 from connection import Connection, ProxyError
 
 
@@ -25,6 +27,9 @@ class Bridge:
         self._lock = threading.Lock()
         self._connection = None
         self._nodes = {}
+        self._provider = ""
+        self._active_name = None
+        self._checking = None
         self._seconds = 0
         self._bytes = 0
         self._closed = False
@@ -68,6 +73,8 @@ class Bridge:
                 now = time.monotonic()
                 if self._connection:
                     if not self._connection.running() or time.time()-previous > 20:
+                        if not self._connection.running() and time.time()-previous <= 20 and self._active_name in self._nodes:
+                            self._quality_event(self._active_name, "drops")
                         self._stop()
                         self._retry_at = now+2
                     else:
@@ -132,9 +139,78 @@ class Bridge:
                 return {"error": "Could not save language."}
             return {"name": name}
 
+    def _quality_event(self, name, field):
+        key = quality.key(self._nodes[name])
+        records = self._store.get("quality", {})
+        record = records.get(key, {})
+        record[field] = record.get(field,0)+1
+        records[key] = record
+        self._store.put("quality", records)
+
+    def _quality_result(self, name, success, latency=None):
+        key = quality.key(self._nodes[name])
+        records = self._store.get("quality", {})
+        records[key] = quality.result(records.get(key,{}), success, latency)
+        self._store.put("quality", records)
+
     def servers(self):
         with self._lock:
-            return {"names": list(self._nodes)}
+            records = self._store.get("quality", {})
+            return {"names": list(self._nodes), "items": [quality.describe(name, node, self._provider, records.get(quality.key(node),{})) for name,node in self._nodes.items()]}
+
+    def preflight(self):
+        return {"warnings":[], "kind":"none"}
+
+    def _probe(self, outbound, attempt):
+        # Temporary local core only: never changes the system proxy or establishes a TUN.
+        core = None
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1",0))
+            port = listener.getsockname()[1]
+        try:
+            core = start(outbound, port, attempt=attempt)
+            attempt.progress("testing_server")
+            started = time.monotonic()
+            self._check_access(port, attempt)
+            return (time.monotonic()-started)*1000
+        finally:
+            stop(core)
+
+    def _choose_server(self, attempt, candidates):
+        with self._lock:
+            records = self._store.get("quality", {})
+            ranked = sorted(candidates, key=lambda name:quality.score(records.get(quality.key(self._nodes[name]),{})), reverse=True)
+            # Include an untested candidate so prior winners do not permanently monopolize selection.
+            unknown = next((name for name in ranked if quality.key(self._nodes[name]) not in records), None)
+            selected = ranked[:4]
+            if unknown and unknown not in selected:
+                selected[-1] = unknown
+        passed = []
+        for index,name in enumerate(selected):
+            attempt.check()
+            attempt.detail = f"{index+1}/{len(selected)}"
+            probe = Attempt()
+            probe.event = attempt.event
+            # Relay the cancellable HTTP client without advertising a probe as the active VPN core.
+            self._checking = probe
+            attempt.progress("selecting_server")
+            try:
+                latency = self._probe(self._nodes[name],probe)
+                with self._lock:
+                    self._quality_result(name,True,latency)
+                passed.append(name)
+            except Cancelled:
+                raise
+            except Exception:
+                with self._lock:
+                    self._quality_result(name,False)
+            finally:
+                self._checking = None
+        if not passed:
+            raise ValueError("Проверенные кандидаты недоступны. Выберите другой сервер или обновите подписку.")
+        with self._lock:
+            records = self._store.get("quality", {})
+            return max(passed,key=lambda name:quality.score(records[quality.key(self._nodes[name])]))
 
     def load(self, url):
         try:
@@ -150,39 +226,58 @@ class Bridge:
                 return {"error": "Отключите мост перед сменой подписки."}
             self._nodes = nodes
             self._metadata = metadata
+            self._provider = urlsplit(url.strip()).hostname or ""
         return {"names": list(nodes), "skipped": skipped}
 
-    def connect(self, name, automatic=False):
+    def connect(self, name, automatic=False, candidates=None):
         with self._lock:
-            if self._closed or self._connection or self._attempt or name not in self._nodes:
+            if self._closed or self._connection or self._attempt or (name not in self._nodes and name != "__auto__"):
                 return {"error":"Select a server or wait for cleanup."}
+            if name == "__auto__":
+                candidates = list(self._nodes) if candidates is None else list(dict.fromkeys(candidates))
+                if not candidates or any(n not in self._nodes for n in candidates):
+                    return {"error":"Нет серверов для автоматического выбора."}
             if not automatic:
                 self._retry_failures = 0
             attempt = Attempt()
             self._attempt = attempt
             self._wanted = name
             self._error = None
-            outbound = self._nodes[name]
+            outbound = self._nodes.get(name)
         def work():
+            nonlocal name, outbound
             connection = None
             try:
+                if name == "__auto__":
+                    name = self._choose_server(attempt,candidates)
+                    outbound = self._nodes[name]
+                    with self._lock:
+                        attempt.check()
+                        self._wanted = name
+                attempt.detail = ""
                 connection = self._connect(outbound, attempt)
+                measured = time.monotonic()
                 attempt.progress("checking_access")
                 self._check_access(connection.port, attempt)
                 with self._lock:
                     attempt.check()
                     connection.started = time.monotonic()
+                    self._quality_result(name,True,(time.monotonic()-measured)*1000)
+                    self._quality_event(name,"sessions")
+                    self._session = self._store.begin(name,time.time())
+                    self._active_name = name
                     self._connection = connection
                     connection = None
                     self._retry_failures = 0
                     self._seconds = self._bytes = 0
                     self._previous_sample = None
                     self._rates = {"upload":0,"download":0}
-                    self._session = self._store.begin(name,time.time())
             except Cancelled:
                 pass
             except Exception as error:
                 with self._lock:
+                    if name in self._nodes:
+                        self._quality_result(name,False)
                     self._error = str(error) if isinstance(error,(ProxyError,ValueError)) else "Не удалось запустить подключение. Попробуйте другой сервер."
                     self._retry_failures += 1
                     if not automatic or self._retry_failures >= 3:
@@ -200,7 +295,8 @@ class Bridge:
                     with self._lock:
                         self._attempt = None
         threading.Thread(target=work,daemon=True).start()
-        return self._snapshot()
+        with self._lock:
+            return self._snapshot()
 
     @staticmethod
     def _check_access(port, attempt):
@@ -239,6 +335,8 @@ class Bridge:
             self._wanted = None
             if self._attempt:
                 self._attempt.cancel()
+            if self._checking:
+                self._checking.cancel()
             return self._snapshot()
 
     def speed_test(self):
@@ -286,7 +384,7 @@ class Bridge:
         return counts is not None
 
     def _snapshot(self):
-        return {"reconnecting": bool(self._wanted and not self._connection and not self._attempt), "connecting": self._attempt is not None, "stage": self._attempt.stage if self._attempt else "", "error":self._error, "auto_power_active":self._low_battery,
+        return {"server": self._active_name, "core_running": bool(self._connection) or bool(self._attempt and self._attempt.core_ready), "internet_verified": bool(self._connection), "stage_detail":self._attempt.detail if self._attempt else "", "reconnecting": bool(self._wanted and not self._connection and not self._attempt), "connecting": self._attempt is not None, "stage": self._attempt.stage if self._attempt else "", "error":self._error, "auto_power_active":self._low_battery,
                 "active": bool(self._connection), "seconds": self._seconds, "bytes": self._bytes,
                 "rates": self._rates, "subscription": self._metadata, "warnings": self._warnings(),
                 "retry_in": max(0, int(self._retry_at-time.monotonic())+1) if self._wanted and not self._connection and not self._attempt else 0,
@@ -306,6 +404,7 @@ class Bridge:
                 self._store.sample(self._session, self._bytes, time.time(), end=True)
                 self._session = None
             self._connection = None
+            self._active_name = None
             self._rates = {"upload":0, "download":0}
 
     def snapshot(self):

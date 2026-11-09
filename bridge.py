@@ -132,9 +132,39 @@ def stop(process):
             process.wait()
 
 
+def validate_config(config, attempt=None, binary=None):
+    """Ask the installed core to validate before changing the system network."""
+    if attempt:
+        attempt.progress("validating_config")
+    process = subprocess.Popen([str(binary or BINARY), "run", "-test", "-config", "stdin:"],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        payload = json.dumps(config).encode()
+        deadline = time.monotonic()+8
+        while True:
+            if attempt:
+                attempt.check()
+            try:
+                process.communicate(input=payload, timeout=.1)
+                break
+            except subprocess.TimeoutExpired:
+                payload = None
+                if time.monotonic()>deadline:
+                    raise ValueError("Проверка конфигурации превысила время ожидания.")
+        if process.returncode != 0:
+            raise ValueError("Ядро отклонило конфигурацию сервера. Обновите подписку или выберите другой сервер.")
+    finally:
+        stop(process)
+
+
 def start(outbound, port=PORT, metrics_port=None, attempt=None):
     if not BINARY.is_file():
         raise ValueError("Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.")
+    config = configuration(outbound, port, metrics_port)
+    validate_config(config, attempt)
+    if attempt:
+        attempt.progress("starting_core")
     with socket.socket() as probe:
         if os.name != "nt":
             probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -147,7 +177,7 @@ def start(outbound, port=PORT, metrics_port=None, attempt=None):
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     try:
         with process.stdin as stream:
-            stream.write(json.dumps(configuration(outbound, port, metrics_port)).encode())
+            stream.write(json.dumps(config).encode())
         deadline = time.monotonic() + 5
         while process.poll() is None and time.monotonic() < deadline:
             if attempt:

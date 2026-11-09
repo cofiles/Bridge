@@ -41,12 +41,17 @@ select{-webkit-appearance:none;appearance:none;background-color:var(--bg);backgr
 .history-group summary{cursor:pointer;font-size:14px;font-weight:550}
 @media(prefers-reduced-motion:reduce){#settings input[type=checkbox]::after{transition:none}}
 .privacy-notice{padding:12px 14px;margin-bottom:16px;border-radius:16px;background:var(--card)}.privacy-notice .note{margin:0 0 10px}
+.server-filters{margin:16px 0;padding:12px 14px;border-radius:16px;background:var(--card)}.filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.filter-grid label{margin:0}.filter-grid select{margin-top:6px}.connection-checks{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--muted)}.connection-checks span[data-ok=true]{color:var(--accent)}.private #serverFilters,.private #serverQuality{visibility:hidden}
 </style></head><body><main>
 <header><div class="brand"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3 24V17C9 17 13 12 16 5C19 12 23 17 29 17V24M3 20H29M10 15V20M16 7V20M22 15V20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Bridge</div><div class="status" role="status"><i class="dot"></i><span id="state">Отключено</span></div></header>
 <nav aria-label="Разделы"><button aria-pressed="true" id="homeTab">Подключение</button><button aria-pressed="false" id="settingsTab">Настройки</button></nav>
 <div id="home"><section class="metrics" aria-label="Статистика сеанса"><div class="metric"><div class="metric-head">Время сеанса</div><div class="value" id="timer">00:00:00</div></div><div class="metric"><div class="metric-head">Трафик</div><div class="value" id="traffic">0 Б</div></div></section>
 <p class="note" id="rates">↓ 0 B/s · ↑ 0 B/s</p><p class="note" id="subscription"></p><p class="note" id="alerts" role="status"></p><div id="privacyNotice" hidden class="privacy-notice"><p class="note">Режим демонстрации включён. Личные данные скрыты.</p><button class="soft" id="disablePrivacy">Показать данные</button></div><label for="url">Ссылка подписки</label><input id="url" type="url" placeholder="https://…" autocomplete="off" spellcheck="false"><div class="buttons"><button class="soft" id="paste">Вставить</button><button class="soft" id="load">Загрузить</button></div>
-<label class="server" for="nodes">Сервер</label><input id="privateServer" value="Сервер скрыт" disabled hidden aria-label="Сервер скрыт"><select disabled id="nodes"><option>Загрузите подписку</option></select><button class="soft" id="favorite" style="margin-top:8px">☆ Избранное</button><button class="action" id="action" disabled><span id="verb">Подключить</span></button><button class="soft" id="speed" style="margin-top:12px">Тест скорости · 8 MiB</button><p class="note" role="status" id="note"></p></div>
+<details id="serverFilters" class="server-filters"><summary>Фильтры серверов</summary><div class="filter-grid">
+<label>Страна<select id="filterCountry"></select></label><label>Протокол<select id="filterProtocol"></select></label>
+<label>Транспорт<select id="filterTransport"></select></label><label>Провайдер<select id="filterProvider"></select></label>
+<label>Последняя проверка<select id="filterStatus"></select></label></div><p class="note">Страна — из названия сервера, провайдер — источник подписки.</p><button class="soft" id="clearFilters">Сбросить фильтры</button></details>
+<label class="server" for="nodes">Сервер</label><input id="privateServer" value="Сервер скрыт" disabled hidden aria-label="Сервер скрыт"><select disabled id="nodes"><option>Загрузите подписку</option></select><p id="serverQuality" class="note"></p><button class="soft" id="favorite" style="margin-top:8px">☆ Избранное</button><button class="action" id="action" disabled><span id="verb">Подключить</span></button><div class="connection-checks" role="status"><span id="coreState">○ Ядро не запущено</span><span id="accessState">○ Доступ не проверен</span></div><button class="soft" id="speed" style="margin-top:12px">Тест скорости · 8 MiB</button><p class="note" role="status" id="note"></p></div>
 <section hidden id="settings">
 <input id="settingsSearch" type="search" placeholder="Поиск настроек" aria-label="Поиск настроек">
 <div id="extraSettings">
@@ -70,6 +75,7 @@ select{-webkit-appearance:none;appearance:none;background-color:var(--bg);backgr
 <p class="note" role="status" id="settingNote"></p></section>
 </main><script>
 const el=id=>document.getElementById(id);
+let serverItems=[],favoriteNames=[],visibleNames=[];
 let preferences={power_saving:false,pinned:[]},lastPoll=0;
 let api,busy=true,active=false,connecting=false,loaded=false,polling=false;
 let language='ru';
@@ -85,7 +91,7 @@ function syncTimer(s){
 }
 setInterval(paintTimer,250);
 document.addEventListener('visibilitychange',paintTimer);
-const translations={"Нет доступа через выбранный сервер. Попробуйте другой сервер.":"No access through the selected server. Try another server.","Не удалось запустить подключение. Попробуйте другой сервер.":"Could not start the connection. Try another server.","Не удалось восстановить настройки сети после ошибки подключения.":"Could not restore network settings after the connection failure.","Ошибка подключения":"Connection failed","Повтор через":"Retry in","Режим демонстрации включён. Личные данные скрыты.":"Presentation mode is on. Personal data is hidden.","Показать данные":"Show data","Настройки не найдены":"No settings found","Автоэкономия при заряде до 20%":"Automatic power saving below 20%","При закрытии":"When closing","Отключить VPN":"Disconnect VPN","Продолжить в фоне":"Keep running in background","Запускаем ядро…":"Starting core…","Создаём туннель…":"Creating tunnel…","Настраиваем систему…":"Configuring system…","Проверяем доступ…":"Checking internet access…","Отменить":"Cancel","Тест скорости · 8 MiB":"Speed test · 8 MiB","Режим демонстрации":"Presentation mode","Энергосбережение":"Power saving","Масштаб":"Interface scale","Отменить изменение":"Undo change","Сбросить данные":"Reset data","Избранное":"Favorite","Статистика и история":"Usage and history","Подключение": "Connection", "Настройки": "Settings", "Время сеанса": "Session time", "Трафик": "Traffic", "Ссылка подписки": "Subscription URL", "Вставить": "Paste", "Загрузить": "Load", "Сервер": "Server", "Загрузите подписку": "Load a subscription", "Подключить": "Connect", "Отключить": "Disconnect", "Подключено": "Connected", "Отключено": "Disconnected", "Палитра": "Palette", "Язык": "Language", "Шалфей": "Sage", "Океан": "Ocean", "Сирень": "Lilac", "Терракота": "Clay", "Роза": "Rose", "Песок": "Sand", "Отключаем…": "Disconnecting…", "Подключаем…": "Connecting…", "Загружаем подписку…": "Loading subscription…", "Пропущено записей: ": "Skipped entries: ", "VPN включён": "VPN enabled", "Системный прокси": "System proxy", "HTTP-прокси": "HTTP proxy", "Не удалось выполнить действие. Повторите попытку.": "Could not complete the action. Please try again.", "Введите HTTPS-ссылку на подписку.": "Enter an HTTPS subscription URL.", "Не удалось загрузить подписку. Проверьте адрес и сеть.": "Could not load the subscription. Check the URL and connection.", "Отключите мост перед сменой подписки.": "Disconnect before changing the subscription.", "Выберите сервер из подписки.": "Select a server from your subscription.", "Не удалось запустить мост.": "Could not start Bridge.", "Соединение прервано.": "Connection interrupted.", "Неизвестная палитра.": "Unknown palette.", "Не удалось сохранить палитру.": "Could not save the palette.", "Не удалось прочитать буфер обмена.": "Could not read the clipboard.", "В буфере нет текста.": "The clipboard contains no text.", "Проверьте формат подписки.": "Check the subscription format.", "В подписке нет поддерживаемых серверов VLESS или Trojan.": "The subscription contains no supported VLESS or Trojan servers.", "Ожидается список ссылок VLESS или Trojan, текстом или в Base64.": "Expected VLESS or Trojan links in plain text or Base64.", "Подписка больше 4 МБ.": "The subscription exceeds 4 MB.", "Подписка перенаправляет на незащищённый адрес.": "The subscription redirects to an insecure URL.", "Сервис подписки вернул ошибку HTTP ": "Subscription service returned HTTP error ", "Android не создал VPN-интерфейс.": "Android could not create the VPN interface.", "Не удалось запустить ядро VPN.": "Could not start the VPN core.", "Ядро VPN не отвечает.": "The VPN core is not responding.", "Не удалось запустить VPN.": "Could not start the VPN.", "Разрешение VPN отклонено.": "VPN permission was denied.", "Проверьте параметры.": "Check the settings.", "Недоступное действие.": "Action unavailable.", "Xray не открыл порт. Проверьте параметры выбранного сервера.": "Xray could not open the port. Check the selected server settings.", "Порт ": "Port ", " занят. Закройте другой прокси и повторите.": " is busy. Close the other proxy and try again.", "Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.": "Xray is missing. Run python setup_core.py in the project folder.", "macOS не включила системный прокси. Проверьте активное подключение и разрешите изменение настроек сети.": "macOS could not enable the system proxy. Check your network and allow changes to network settings.", "Проверьте настройки прокси активной сети в macOS: восстановление прервалось.": "Check the active network proxy settings in macOS. Restoration was interrupted."};
+const translations={"Фильтры серверов":"Server filters","Страна":"Country","Протокол":"Protocol","Транспорт":"Transport","Провайдер":"Provider","Последняя проверка":"Last check","Сбросить фильтры":"Clear filters","Страна — из названия сервера, провайдер — источник подписки.":"Country comes from the server name; provider is the subscription source.","Ядро не запущено":"Core not running","Ядро запущено":"Core running","Доступ не проверен":"Access not verified","Доступ подтверждён":"Access verified","Проверяем конфигурацию…":"Validating configuration…","Выбираем сервер…":"Selecting a server…","Проверяем сервер…":"Testing server…","Нет серверов для автоматического выбора.":"No servers available for automatic selection.","Проверенные кандидаты недоступны. Выберите другой сервер или обновите подписку.":"Tested candidates are unavailable. Choose another server or refresh the subscription.","Проверка конфигурации превысила время ожидания.":"Configuration validation timed out.","Ядро отклонило конфигурацию сервера. Обновите подписку или выберите другой сервер.":"The core rejected the server configuration. Refresh the subscription or choose another server.","Нет доступа через выбранный сервер. Попробуйте другой сервер.":"No access through the selected server. Try another server.","Не удалось запустить подключение. Попробуйте другой сервер.":"Could not start the connection. Try another server.","Не удалось восстановить настройки сети после ошибки подключения.":"Could not restore network settings after the connection failure.","Ошибка подключения":"Connection failed","Повтор через":"Retry in","Режим демонстрации включён. Личные данные скрыты.":"Presentation mode is on. Personal data is hidden.","Показать данные":"Show data","Настройки не найдены":"No settings found","Автоэкономия при заряде до 20%":"Automatic power saving below 20%","При закрытии":"When closing","Отключить VPN":"Disconnect VPN","Продолжить в фоне":"Keep running in background","Запускаем ядро…":"Starting core…","Создаём туннель…":"Creating tunnel…","Настраиваем систему…":"Configuring system…","Проверяем доступ…":"Checking internet access…","Отменить":"Cancel","Тест скорости · 8 MiB":"Speed test · 8 MiB","Режим демонстрации":"Presentation mode","Энергосбережение":"Power saving","Масштаб":"Interface scale","Отменить изменение":"Undo change","Сбросить данные":"Reset data","Избранное":"Favorite","Статистика и история":"Usage and history","Подключение": "Connection", "Настройки": "Settings", "Время сеанса": "Session time", "Трафик": "Traffic", "Ссылка подписки": "Subscription URL", "Вставить": "Paste", "Загрузить": "Load", "Сервер": "Server", "Загрузите подписку": "Load a subscription", "Подключить": "Connect", "Отключить": "Disconnect", "Подключено": "Connected", "Отключено": "Disconnected", "Палитра": "Palette", "Язык": "Language", "Шалфей": "Sage", "Океан": "Ocean", "Сирень": "Lilac", "Терракота": "Clay", "Роза": "Rose", "Песок": "Sand", "Отключаем…": "Disconnecting…", "Подключаем…": "Connecting…", "Загружаем подписку…": "Loading subscription…", "Пропущено записей: ": "Skipped entries: ", "VPN включён": "VPN enabled", "Системный прокси": "System proxy", "HTTP-прокси": "HTTP proxy", "Не удалось выполнить действие. Повторите попытку.": "Could not complete the action. Please try again.", "Введите HTTPS-ссылку на подписку.": "Enter an HTTPS subscription URL.", "Не удалось загрузить подписку. Проверьте адрес и сеть.": "Could not load the subscription. Check the URL and connection.", "Отключите мост перед сменой подписки.": "Disconnect before changing the subscription.", "Выберите сервер из подписки.": "Select a server from your subscription.", "Не удалось запустить мост.": "Could not start Bridge.", "Соединение прервано.": "Connection interrupted.", "Неизвестная палитра.": "Unknown palette.", "Не удалось сохранить палитру.": "Could not save the palette.", "Не удалось прочитать буфер обмена.": "Could not read the clipboard.", "В буфере нет текста.": "The clipboard contains no text.", "Проверьте формат подписки.": "Check the subscription format.", "В подписке нет поддерживаемых серверов VLESS или Trojan.": "The subscription contains no supported VLESS or Trojan servers.", "Ожидается список ссылок VLESS или Trojan, текстом или в Base64.": "Expected VLESS or Trojan links in plain text or Base64.", "Подписка больше 4 МБ.": "The subscription exceeds 4 MB.", "Подписка перенаправляет на незащищённый адрес.": "The subscription redirects to an insecure URL.", "Сервис подписки вернул ошибку HTTP ": "Subscription service returned HTTP error ", "Android не создал VPN-интерфейс.": "Android could not create the VPN interface.", "Не удалось запустить ядро VPN.": "Could not start the VPN core.", "Ядро VPN не отвечает.": "The VPN core is not responding.", "Не удалось запустить VPN.": "Could not start the VPN.", "Разрешение VPN отклонено.": "VPN permission was denied.", "Проверьте параметры.": "Check the settings.", "Недоступное действие.": "Action unavailable.", "Xray не открыл порт. Проверьте параметры выбранного сервера.": "Xray could not open the port. Check the selected server settings.", "Порт ": "Port ", " занят. Закройте другой прокси и повторите.": " is busy. Close the other proxy and try again.", "Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.": "Xray is missing. Run python setup_core.py in the project folder.", "macOS не включила системный прокси. Проверьте активное подключение и разрешите изменение настроек сети.": "macOS could not enable the system proxy. Check your network and allow changes to network settings.", "Проверьте настройки прокси активной сети в macOS: восстановление прервалось.": "Check the active network proxy settings in macOS. Restoration was interrupted."};
 const originalText=new WeakMap();
 function translated(text){
  let result=text;
@@ -98,7 +104,7 @@ function translatePage(){
  let node;
  while(node=walker.nextNode()){
   // Server names and pasted data belong to the subscription.
-  if(node.parentElement.closest('#nodes,#url'))continue;
+  if(node.parentElement.closest('#nodes,#url,#serverFilters option'))continue;
   const previous=originalText.get(node);
   let source=node.nodeValue;
   if(previous && (source===previous.rendered || source===previous.source))source=previous.source;
@@ -116,6 +122,7 @@ function setLanguage(name){
  el('settingsSearch').placeholder=language==='en'?'Search settings':'Поиск настроек';
  el('settingsSearch').setAttribute('aria-label',el('settingsSearch').placeholder);
  if(el('settingsSearch').oninput)el('settingsSearch').oninput();
+ if(serverItems.length)fillFilters();
 }
 new MutationObserver(translatePage).observe(document.querySelector('main'),{subtree:true,childList:true,characterData:true});
 el('language').onchange=async()=>{
@@ -137,7 +144,7 @@ for(const [id,[name,hue]] of Object.entries(colors)){
 applyPalette('sage');
 function tab(settings){el('settings').hidden=!settings;el('home').hidden=settings;el('homeTab').setAttribute('aria-pressed',!settings);el('settingsTab').setAttribute('aria-pressed',settings)}
 el('homeTab').onclick=()=>tab(false);el('settingsTab').onclick=()=>tab(true);
-function controls(){el('url').disabled=el('load').disabled=el('paste').disabled=busy||active||connecting;el('nodes').disabled=busy||active||connecting||!loaded;el('action').disabled=busy||(!loaded&&!active&&!connecting)}
+function controls(){el('url').disabled=el('load').disabled=el('paste').disabled=busy||active||connecting;el('nodes').disabled=busy||active||connecting||!loaded;el('action').disabled=busy||((!loaded||!el('nodes').value)&&!active&&!connecting);el('favorite').disabled=busy||!el('nodes').value||el('nodes').value==='__auto__';for(const id of filterFields.keys())el(id).disabled=busy||active||connecting;el('clearFilters').disabled=busy||active||connecting}
 function render(s){
  connecting=!!(s.connecting||s.reconnecting);
  if(typeof s.active==='boolean'){
@@ -147,9 +154,11 @@ function render(s){
  el('traffic').textContent=s.fresh===false?'—':n.toLocaleString(language==='en'?'en-US':'ru-RU',{maximumFractionDigits:i&&n<100?1:0})+' '+units[i];
  }
  if(connecting){
- const stages={starting:'Подключаем…',starting_core:'Запускаем ядро…',creating_tunnel:'Создаём туннель…',configuring_system:'Настраиваем систему…',checking_access:'Проверяем доступ…'};
- el('state').textContent=s.reconnecting?'Повтор через '+(s.retry_in||0)+' s':(stages[s.stage]||'Подключаем…');el('verb').textContent='Отменить';
+ const stages={validating_config:'Проверяем конфигурацию…',selecting_server:'Выбираем сервер…',testing_server:'Проверяем сервер…',starting:'Подключаем…',starting_core:'Запускаем ядро…',creating_tunnel:'Создаём туннель…',configuring_system:'Настраиваем систему…',checking_access:'Проверяем доступ…'};
+ el('state').textContent=s.reconnecting?'Повтор через '+(s.retry_in||0)+' s':((stages[s.stage]||'Подключаем…')+(s.stage_detail?' '+s.stage_detail:''));el('verb').textContent='Отменить';
  }
+ if(typeof s.core_running==='boolean'){el('coreState').dataset.ok=String(s.core_running);el('coreState').textContent=s.core_running?'✓ Ядро запущено':'○ Ядро не запущено';el('accessState').dataset.ok=String(s.internet_verified);el('accessState').textContent=s.internet_verified?'✓ Доступ подтверждён':'○ Доступ не проверен'}
+ if(s.server&&active){el('nodes').value=[...el('nodes').options].some(o=>o.value===s.server)?s.server:'__auto__';showQuality()}
  if(s.rates)el('rates').textContent='↓ '+bytes(s.rates.download)+'/s · ↑ '+bytes(s.rates.upload)+'/s';
  const info=s.subscription||{},parts=[];
  if(info.expire)parts.push((language==='en'?'Expires: ':'До: ')+new Date(info.expire*1000).toLocaleDateString());
@@ -169,15 +178,14 @@ el('load').onclick=()=>run(async()=>{
  el('note').textContent='Загружаем подписку…';
  const s=await api.load(el('url').value);
  if(s.error){render(s);return}
- const menu=el('nodes');menu.replaceChildren();
- for(const name of s.names)menu.add(new Option(name,name));
- loaded=s.names.length>0;await refreshFavorites();render(await api.snapshot());el('note').textContent=s.skipped?'Пропущено записей: '+s.skipped:'';
+ await reloadServers();await refreshFavorites();render(await api.snapshot());el('note').textContent=s.skipped?'Пропущено записей: '+s.skipped:'';
 });
 el('url').onkeydown=e=>{if(e.key==='Enter')el('load').click()};
 el('action').onclick=()=>run(async()=>{
  if(connecting){render(await api.cancel());return}
  el('state').textContent=active?'Отключаем…':'Подключаем…';
- const s=active?await api.disconnect():await api.connect(el('nodes').value);
+ if(!active&&!await confirmConflict())return;
+ const s=active?await api.disconnect():await api.connect(el('nodes').value,false,el('nodes').value==='__auto__'?visibleNames:null);
  el('state').textContent='Отключено';el('note').textContent=s.active?(window.BridgeNative?'VPN включён':'Системный прокси'+' · 127.0.0.1:'+s.port):'';
  render(s);
 });
@@ -185,9 +193,9 @@ el('paste').onclick=()=>run(async()=>{const s=await api.paste();if(s.error){rend
 async function ready(backend){
  api=backend;
  try{setLanguage((await api.language(null)).name);applyPalette((await api.palette(null)).name);
- const s=await api.servers();if(s.names.length){el('nodes').replaceChildren(...s.names.map(n=>new Option(n,n)));loaded=true}
+ await reloadServers();
  await loadPreferences();await refreshFavorites();render(await api.snapshot())}finally{busy=false;controls()}
- setInterval(async()=>{if(busy||polling||Date.now()-lastPoll<(preferences.power_saving&&!connecting?5000:1000))return;lastPoll=Date.now();polling=true;try{const s=await api.snapshot();if(!busy)render(s)}finally{polling=false}},1000)
+ setInterval(async()=>{if(busy||polling||Date.now()-lastPoll<(preferences.power_saving&&!connecting?5000:1000))return;lastPoll=Date.now();polling=true;try{const s=await api.snapshot();if(!busy){const finished=connecting&&!s.connecting&&!s.reconnecting;render(s);if(finished)await reloadServers()}}finally{polling=false}},1000)
 }
 function bytes(n){let i=0;const units=['B','KB','MB','GB','TB'];while(n>=1000&&i<4){n/=1000;i++}return n.toFixed(i?1:0)+' '+units[i]}
 async function loadPreferences(){
@@ -221,20 +229,54 @@ el('settingsSearch').oninput=()=>{
  for(const group of el('extraSettings').children)group.hidden=![...group.children].some(row=>!row.hidden);
  el('noSettings').hidden=matches>0;
 };
-async function refreshFavorites(){
- if(!loaded)return;
- const result=await api.favorite(null),selected=el('nodes').value;
- const options=[...el('nodes').options];
- options.sort((a,b)=>Number(result.names.includes(b.value))-Number(result.names.includes(a.value)));
- options.forEach(o=>{o.textContent=(result.names.includes(o.value)?'★ ':'')+o.value;el('nodes').append(o)});
- el('nodes').value=selected;el('favorite').textContent=result.names.includes(selected)?'★ Избранное':'☆ Избранное';
+const filterFields=new Map([['filterCountry','country'],['filterProtocol','protocol'],['filterTransport','transport'],['filterProvider','provider'],['filterStatus','status']]);
+function filterLabel(field,value){
+ if(!value)return language==='en'?'Unknown':'Неизвестно';
+ if(field==='status')return ({passed:language==='en'?'Passed':'Успешно',failed:language==='en'?'Failed':'Ошибка',untested:language==='en'?'Not tested':'Не проверен'})[value]||value;
+ if(field==='country'){try{return new Intl.DisplayNames([language],{type:'region'}).of(value)}catch{return value}}
+ return value;
 }
-el('favorite').onclick=async()=>{if(!loaded)return;await api.favorite(el('nodes').value);await refreshFavorites()};
-el('nodes').onchange=refreshFavorites;
+function fillFilters(){
+ for(const [id,field] of filterFields){
+  const selected=el(id).value,values=[...new Set(serverItems.map(item=>item[field]||''))].sort();
+  el(id).replaceChildren(new Option(language==='en'?'All':'Все','*'),...values.map(value=>new Option(filterLabel(field,value),value)));
+  el(id).value=values.includes(selected)?selected:'*';
+ }
+ applyFilters();
+}
+function applyFilters(){
+ const selected=el('nodes').value;
+ const items=serverItems.filter(item=>[...filterFields].every(([id,field])=>el(id).value==='*'||(item[field]||'')===el(id).value));
+ items.sort((a,b)=>Number(favoriteNames.includes(b.name))-Number(favoriteNames.includes(a.name)));
+ visibleNames=items.map(item=>item.name);
+ el('nodes').replaceChildren(...(items.length?[new Option(language==='en'?'Auto select · quality':'Автовыбор · качество','__auto__'),...items.map(item=>new Option((favoriteNames.includes(item.name)?'★ ':'')+item.name,item.name))]:[new Option(language==='en'?'No matching servers':'Нет подходящих серверов','')]));
+ if(selected==='__auto__'||visibleNames.includes(selected))el('nodes').value=selected;
+ showQuality();controls();
+}
+function showQuality(){
+ const name=el('nodes').value,item=serverItems.find(item=>item.name===name);
+ el('favorite').textContent=(favoriteNames.includes(name)?'★ ':'☆ ')+(language==='en'?'Favorite':'Избранное');
+ if(name==='__auto__'){el('serverQuality').textContent=language==='en'?'Tests up to 4 matching servers. Uses latency, success history and unexpected disconnects.':'Проверяет до 4 подходящих серверов. Учитывает задержку, успешность и обрывы.';return}
+ if(!item){el('serverQuality').textContent='';return}
+ el('serverQuality').textContent=item.score===null?(language==='en'?'No quality measurements yet':'Качество ещё не измерено'):(language==='en'?'Quality: ':'Качество: ')+item.score+'/100 · '+(item.latency_ms===null?'—':item.latency_ms+' ms')+' · '+item.successes+'/'+(item.successes+item.failures)+(language==='en'?' successful checks':' успешных проверок')+' · '+item.drops+(language==='en'?' drops':' обрывов');
+}
+async function reloadServers(){const s=await api.servers();serverItems=s.items||s.names.map(name=>({name,status:'untested',score:null}));loaded=serverItems.length>0;fillFilters()}
+async function refreshFavorites(){if(!api)return;favoriteNames=(await api.favorite(null)).names;applyFilters()}
+for(const [id] of filterFields)el(id).onchange=applyFilters;
+el('clearFilters').onclick=()=>{for(const [id] of filterFields)el(id).value='*';applyFilters()};
+el('favorite').onclick=async()=>{if(!loaded||el('nodes').value==='__auto__')return;await api.favorite(el('nodes').value);await refreshFavorites()};
+el('nodes').onchange=()=>{showQuality();controls()};
+async function confirmConflict(){
+ const result=await api.preflight();
+ if(!result.warnings?.length)return true;
+ const text=language==='en'?'Another VPN or tunnel adapter may be active. Connections can conflict. Continue?':'Возможно, работает другой VPN или туннельный адаптер. Подключения могут конфликтовать. Продолжить?';
+ return confirm(text+(preferences.presentation?'':'\n'+result.warnings.join(', ')));
+}
+window.bridgeTrayConflict=()=>{tab(false);el('note').textContent=language==='en'?'Possible VPN conflict. Connect here to review the warning.':'Возможен конфликт VPN. Нажмите «Подключить» здесь, чтобы подтвердить действие.'};
 el('undo').onclick=async()=>{const s=await api.undo();el('settingNote').textContent=s.error||'';await loadPreferences();await refreshFavorites()};
 el('reset').onclick=async()=>{
  if(!confirm(language==='en'?'Disconnect and delete all Bridge data?':'Отключить VPN и удалить все данные Bridge?'))return;
- const s=await api.reset();if(s.error){el('settingNote').textContent=s.error;return}loaded=false;active=false;el('url').value='';el('nodes').replaceChildren(new Option('Загрузите подписку',''));el('history').replaceChildren();el('totals').textContent='';
+ const s=await api.reset();if(s.error){el('settingNote').textContent=s.error;return}loaded=false;active=false;serverItems=[];favoriteNames=[];fillFilters();el('url').value='';el('nodes').replaceChildren(new Option('Загрузите подписку',''));el('history').replaceChildren();el('totals').textContent='';
  applyPalette('sage');setLanguage('ru');await loadPreferences();render(await api.snapshot());
 };
 el('settingsTab').onclick=async()=>{

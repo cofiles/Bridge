@@ -18,6 +18,10 @@ from controller import Bridge
 
 
 class DesktopBridge(Bridge):
+    def preflight(self):
+        from desktop_integration import vpn_conflicts
+        return vpn_conflicts()
+
     def _platform_monitor(self):
         while not self._closed:
             addresses = psutil.net_if_addrs()
@@ -65,6 +69,12 @@ if __name__ == "__main__":
     root = Path(__file__).resolve().parent
     settings = (Path.home() / "Library/Application Support" if sys.platform == "darwin"
                 else Path(os.environ["LOCALAPPDATA"])) / "Bridge"
+    from instance import SingleInstance
+    instance = SingleInstance(settings)
+    if not instance.acquire():
+        raise SystemExit(0)
+    import atexit
+    atexit.register(instance.close)
     if sys.platform == "win32":
         from windows_proxy import WindowsProxy
         try:
@@ -76,12 +86,26 @@ if __name__ == "__main__":
     window = webview.create_window("Bridge", html=(root / "assets/bridge.html").read_text(encoding="utf-8"),
                                    js_api=api, width=474, height=628, min_size=(360, 500),
                                    background_color="#f7f8f3")
+    from desktop_integration import Tray
+    tray = Tray(api, window, root / "assets/bridge-icon.png")
+    def show_existing():
+        window.show()
+        window.restore()
+    def ready_window():
+        instance.set_callback(show_existing)
+    window.events.shown += ready_window
     api._notify = api._system_notice
     threading.Thread(target=api._platform_monitor,daemon=True).start()
     def close_window():
-        if api.preferences().get("close_behavior") == "background":
-            window.minimize()
+        if not getattr(api,"_force_quit",False) and api.preferences().get("close_behavior") == "background":
+            window.hide()
             return False
         api._close_window()
+        tray.stop()
     window.events.closing += close_window
-    webview.start()
+    tray.start()
+    try:
+        webview.start()
+    finally:
+        tray.stop()
+        instance.close()

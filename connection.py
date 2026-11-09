@@ -27,6 +27,7 @@ class Connection:
                     probe.bind(("127.0.0.1", 0))
                     self.port = probe.getsockname()[1]
         self.core = start(outbound, self.port, self.metrics_port, attempt)
+        attempt.core_ready = True
         self.helper = None
         self.windows_proxy = None
         if sys.platform == "darwin":

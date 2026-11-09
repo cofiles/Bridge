@@ -56,7 +56,7 @@ public class TunnelService extends VpnService {
   if(intent!=null)Backend.work.execute(()->{
    ResultReceiver receiver=intent.getParcelableExtra("receiver");
    String result;
-   try {result=Backend.module().callAttr("connect",this,intent.getStringExtra("name")).toString();}
+   try {result=Backend.module().callAttr("connect",this,intent.getStringExtra("name"),intent.getStringExtra("candidates")==null?"null":intent.getStringExtra("candidates")).toString();}
    catch(Exception e){result="{\"error\":\"Не удалось запустить VPN.\"}";}
    Bundle data=new Bundle();data.putString("result",result);
    if(receiver!=null)receiver.send(0,data);

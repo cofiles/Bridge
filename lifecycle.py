@@ -9,6 +9,8 @@ class Attempt:
         self.event = threading.Event()
         self.stage = "starting"
         self.client = None
+        self.core_ready = False
+        self.detail = ""
 
     def check(self):
         if self.event.is_set():

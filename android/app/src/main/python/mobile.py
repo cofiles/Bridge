@@ -8,7 +8,8 @@ import http.client
 from pathlib import Path
 from controller import Bridge
 from connection import Connection
-from bridge import configuration, stop
+from bridge import configuration, stop, validate_config
+import bridge
 from lifecycle import Attempt
 
 api = None
@@ -28,6 +29,8 @@ class Tunnel(Connection):
         config = configuration(outbound, port=self.port, metrics_port=self.metrics_port)
         config["inbounds"][0]["tag"] = "test"
         config["inbounds"] += [{"tag": "bridge", "protocol": "tun", "settings": {"name": "bridge0", "mtu": 1500}}]
+        validate_config(config,attempt,binary=str(service.getApplicationInfo().nativeLibraryDir)+"/libxray.so")
+        attempt.progress("creating_tunnel")
         self.device = service.openTunnel()
         if self.device is None:
             raise ValueError("Android не создал VPN-интерфейс.")
@@ -62,6 +65,7 @@ class Tunnel(Connection):
                 try:
                     probe.request("GET", "/debug/vars")
                     if probe.getresponse().status == 200:
+                        attempt.core_ready = True
                         return
                 except (OSError, http.client.HTTPException):
                     pass
@@ -83,16 +87,18 @@ class Tunnel(Connection):
             self.device.close()
             self.errors.close()
 
-def init(directory):
+def init(directory, native_directory=None):
     global api
+    if native_directory:
+        bridge.BINARY = Path(str(native_directory)) / "libxray.so"
     if api is None:
         api = Bridge(directory, connect=Tunnel)
 
-def connect(vpn, name):
+def connect(vpn, name, candidates="null"):
     global service
     service = vpn
     api._notify = lambda message: service.alert(message)
-    return json.dumps(api.connect(name))
+    return json.dumps(api.connect(name,candidates=json.loads(candidates)))
 
 def call(method, args):
     if method not in ("load", "palette", "snapshot", "disconnect", "servers", "language", "preferences", "favorite", "undo", "report", "reset", "cancel", "speed_test", "environment"):

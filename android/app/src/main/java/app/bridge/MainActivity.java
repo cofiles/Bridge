@@ -10,11 +10,12 @@ public class MainActivity extends Activity {
  WebView view;
  int pendingId;
  String pendingName;
+ String pendingCandidates="null";
  @Override public void onCreate(Bundle state) {
   super.onCreate(state);
   if(android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED)
    requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},2);
-  Backend.module().callAttr("init", getFilesDir().toString());
+  Backend.module().callAttr("init", getFilesDir().toString(), getApplicationInfo().nativeLibraryDir);
   view=new WebView(this);
   view.getSettings().setJavaScriptEnabled(true);
   view.getSettings().setAllowFileAccess(false);
@@ -56,13 +57,23 @@ public class MainActivity extends Activity {
  }
  void dispatch(int id,String method,String args) {
   try {
+   if(method.equals("preflight")) {
+    android.net.ConnectivityManager cm=getSystemService(android.net.ConnectivityManager.class);
+    JSONArray warnings=new JSONArray();
+    for(android.net.Network network:cm.getAllNetworks()){
+     android.net.NetworkCapabilities cap=cm.getNetworkCapabilities(network);
+     if(cap!=null && cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)){warnings.put("VPN");break;}
+    }
+    reply(id,new JSONObject().put("warnings",warnings).put("kind","possible_vpn").toString());return;
+   }
    if(method.equals("paste")) {
     ClipboardManager cm=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
     CharSequence text=cm.hasPrimaryClip()?cm.getPrimaryClip().getItemAt(0).coerceToText(this):"";
     reply(id,new JSONObject().put("text",text.toString()).toString()); return;
    }
    if(method.equals("connect")) {
-    pendingId=id;pendingName=new JSONArray(args).getString(0);
+    pendingId=id;JSONArray parameters=new JSONArray(args);pendingName=parameters.getString(0);
+    pendingCandidates=parameters.length()>2&&!parameters.isNull(2)?parameters.getJSONArray(2).toString():"null";
     Intent permission=VpnService.prepare(this);
     if(permission!=null)startActivityForResult(permission,1);else startTunnel();
     return;
@@ -83,7 +94,7 @@ public class MainActivity extends Activity {
   ResultReceiver receiver=new ResultReceiver(new Handler(getMainLooper())) {
    @Override protected void onReceiveResult(int code,Bundle data) { reply(id,data.getString("result")); }
   };
-  startForegroundService(new Intent(this,TunnelService.class).putExtra("name",pendingName).putExtra("receiver",receiver));
+  startForegroundService(new Intent(this,TunnelService.class).putExtra("name",pendingName).putExtra("candidates",pendingCandidates).putExtra("receiver",receiver));
  }
  @Override public void onBackPressed() {
   Backend.work.execute(()->{

@@ -13,18 +13,29 @@ label{display:block;margin:0 0 8px}input,select{width:100%;min-width:0;height:45
 h2{font-size:21px;margin:0 0 16px}.palette{width:100%;padding:11px 14px;border-radius:16px;gap:12px;background:transparent;text-align:left}.palette[aria-pressed=true]{background:var(--card)}.sample{width:38px;height:30px;border-radius:15px;background:linear-gradient(120deg,hsl(var(--shade),39%,35%) 50%,hsl(var(--shade),38%,77%) 50%)}.check{margin-left:auto;color:var(--accent)}[hidden]{display:none!important}
 @media(max-width:370px){main{padding:20px 16px}}
 .android{color-scheme:dark;--bg:hsl(var(--h),9%,10%);--ink:hsl(var(--h),15%,91%);--muted:hsl(var(--h),10%,76%);--card:hsl(var(--h),12%,17%);--soft:hsl(var(--h),22%,25%);--accent:hsl(var(--h),40%,73%);--on:hsl(var(--h),44%,13%);--line:hsl(var(--h),9%,44%)}
+*{-webkit-tap-highlight-color:transparent}button,input,select{transition:background-color .2s,color .2s,transform .15s}button:active:enabled{transform:scale(.97)}#home,#settings{animation:appear .22s ease-out}@keyframes appear{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.setting-row{padding:12px 0;border-bottom:1px solid var(--line)}.setting-row input[type=checkbox]{width:20px;height:20px;vertical-align:middle}.private #url,.private #nodes,.private #subscription,.private #history,.private #note{visibility:hidden}
 </style></head><body><main>
 <header><div class="brand"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3 24V17C9 17 13 12 16 5C19 12 23 17 29 17V24M3 20H29M10 15V20M16 7V20M22 15V20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Bridge</div><div class="status" role="status"><i class="dot"></i><span id="state">Отключено</span></div></header>
 <nav aria-label="Разделы"><button aria-pressed="true" id="homeTab">Подключение</button><button aria-pressed="false" id="settingsTab">Настройки</button></nav>
 <div id="home"><section class="metrics" aria-label="Статистика сеанса"><div class="metric"><div class="metric-head">Время сеанса</div><div class="value" id="timer">00:00:00</div></div><div class="metric"><div class="metric-head">Трафик</div><div class="value" id="traffic">0 Б</div></div></section>
-<label for="url">Ссылка подписки</label><input id="url" type="url" placeholder="https://…" autocomplete="off" spellcheck="false"><div class="buttons"><button class="soft" id="paste">Вставить</button><button class="soft" id="load">Загрузить</button></div>
-<label class="server" for="nodes">Сервер</label><select disabled id="nodes"><option>Загрузите подписку</option></select><button class="action" id="action" disabled><span id="verb">Подключить</span></button><p class="note" role="status" id="note"></p></div>
-<section hidden id="settings"><label for="language">Язык</label><select id="language" style="margin-bottom:20px"><option value="ru">Русский</option><option value="en">English</option></select><h2>Палитра</h2><div id="colors"></div><p class="note" role="status" id="settingNote"></p></section>
+<p class="note" id="rates">↓ 0 B/s · ↑ 0 B/s</p><p class="note" id="subscription"></p><p class="note" id="alerts" role="status"></p><label for="url">Ссылка подписки</label><input id="url" type="url" placeholder="https://…" autocomplete="off" spellcheck="false"><div class="buttons"><button class="soft" id="paste">Вставить</button><button class="soft" id="load">Загрузить</button></div>
+<label class="server" for="nodes">Сервер</label><select disabled id="nodes"><option>Загрузите подписку</option></select><button class="soft" id="favorite" style="margin-top:8px">☆ Избранное</button><button class="action" id="action" disabled><span id="verb">Подключить</span></button><p class="note" role="status" id="note"></p></div>
+<section hidden id="settings">
+<input id="settingsSearch" type="search" placeholder="Поиск / Search" style="margin-bottom:15px">
+<div id="extraSettings">
+<div class="setting-row" data-search="privacy screen демонстрация скрыть"><button class="pin" data-pin="presentation">☆</button><label><input type="checkbox" id="presentation"> Режим демонстрации</label></div>
+<div class="setting-row" data-search="battery power батарея энергия"><button class="pin" data-pin="power_saving">☆</button><label><input type="checkbox" id="power_saving"> Энергосбережение</label></div>
+<div class="setting-row" data-search="size scale zoom размер текст"><button class="pin" data-pin="scale">☆</button><label for="scale">Масштаб</label><select id="scale"><option>100</option><option>115</option><option>130</option><option>150</option></select></div>
+</div>
+<button class="soft" id="undo" style="margin:12px 0">Отменить изменение</button><button class="soft" id="reset">Сбросить данные</button>
+<details><summary>Статистика и история</summary><p id="totals" class="note"></p><div id="history" class="note"></div></details><label for="language">Язык</label><select id="language" style="margin-bottom:20px"><option value="ru">Русский</option><option value="en">English</option></select><h2>Палитра</h2><div id="colors"></div><p class="note" role="status" id="settingNote"></p></section>
 </main><script>
 const el=id=>document.getElementById(id);
+let preferences={power_saving:false,pinned:[]},lastPoll=0;
 let api,busy=true,active=false,loaded=false,polling=false;
 let language='ru';
-const translations={"Подключение": "Connection", "Настройки": "Settings", "Время сеанса": "Session time", "Трафик": "Traffic", "Ссылка подписки": "Subscription URL", "Вставить": "Paste", "Загрузить": "Load", "Сервер": "Server", "Загрузите подписку": "Load a subscription", "Подключить": "Connect", "Отключить": "Disconnect", "Подключено": "Connected", "Отключено": "Disconnected", "Палитра": "Palette", "Язык": "Language", "Шалфей": "Sage", "Океан": "Ocean", "Сирень": "Lilac", "Терракота": "Clay", "Роза": "Rose", "Песок": "Sand", "Отключаем…": "Disconnecting…", "Подключаем…": "Connecting…", "Загружаем подписку…": "Loading subscription…", "Пропущено записей: ": "Skipped entries: ", "VPN включён": "VPN enabled", "Системный прокси": "System proxy", "HTTP-прокси": "HTTP proxy", "Не удалось выполнить действие. Повторите попытку.": "Could not complete the action. Please try again.", "Введите HTTPS-ссылку на подписку.": "Enter an HTTPS subscription URL.", "Не удалось загрузить подписку. Проверьте адрес и сеть.": "Could not load the subscription. Check the URL and connection.", "Отключите мост перед сменой подписки.": "Disconnect before changing the subscription.", "Выберите сервер из подписки.": "Select a server from your subscription.", "Не удалось запустить мост.": "Could not start Bridge.", "Соединение прервано.": "Connection interrupted.", "Неизвестная палитра.": "Unknown palette.", "Не удалось сохранить палитру.": "Could not save the palette.", "Не удалось прочитать буфер обмена.": "Could not read the clipboard.", "В буфере нет текста.": "The clipboard contains no text.", "Проверьте формат подписки.": "Check the subscription format.", "В подписке нет поддерживаемых серверов VLESS или Trojan.": "The subscription contains no supported VLESS or Trojan servers.", "Ожидается список ссылок VLESS или Trojan, текстом или в Base64.": "Expected VLESS or Trojan links in plain text or Base64.", "Подписка больше 4 МБ.": "The subscription exceeds 4 MB.", "Подписка перенаправляет на незащищённый адрес.": "The subscription redirects to an insecure URL.", "Сервис подписки вернул ошибку HTTP ": "Subscription service returned HTTP error ", "Android не создал VPN-интерфейс.": "Android could not create the VPN interface.", "Не удалось запустить ядро VPN.": "Could not start the VPN core.", "Ядро VPN не отвечает.": "The VPN core is not responding.", "Не удалось запустить VPN.": "Could not start the VPN.", "Разрешение VPN отклонено.": "VPN permission was denied.", "Проверьте параметры.": "Check the settings.", "Недоступное действие.": "Action unavailable.", "Xray не открыл порт. Проверьте параметры выбранного сервера.": "Xray could not open the port. Check the selected server settings.", "Порт ": "Port ", " занят. Закройте другой прокси и повторите.": " is busy. Close the other proxy and try again.", "Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.": "Xray is missing. Run python setup_core.py in the project folder.", "macOS не включила системный прокси. Проверьте активное подключение и разрешите изменение настроек сети.": "macOS could not enable the system proxy. Check your network and allow changes to network settings.", "Проверьте настройки прокси активной сети в macOS: восстановление прервалось.": "Check the active network proxy settings in macOS. Restoration was interrupted."};
+const translations={"Режим демонстрации":"Presentation mode","Энергосбережение":"Power saving","Масштаб":"Interface scale","Отменить изменение":"Undo change","Сбросить данные":"Reset data","Избранное":"Favorite","Статистика и история":"Usage and history","Подключение": "Connection", "Настройки": "Settings", "Время сеанса": "Session time", "Трафик": "Traffic", "Ссылка подписки": "Subscription URL", "Вставить": "Paste", "Загрузить": "Load", "Сервер": "Server", "Загрузите подписку": "Load a subscription", "Подключить": "Connect", "Отключить": "Disconnect", "Подключено": "Connected", "Отключено": "Disconnected", "Палитра": "Palette", "Язык": "Language", "Шалфей": "Sage", "Океан": "Ocean", "Сирень": "Lilac", "Терракота": "Clay", "Роза": "Rose", "Песок": "Sand", "Отключаем…": "Disconnecting…", "Подключаем…": "Connecting…", "Загружаем подписку…": "Loading subscription…", "Пропущено записей: ": "Skipped entries: ", "VPN включён": "VPN enabled", "Системный прокси": "System proxy", "HTTP-прокси": "HTTP proxy", "Не удалось выполнить действие. Повторите попытку.": "Could not complete the action. Please try again.", "Введите HTTPS-ссылку на подписку.": "Enter an HTTPS subscription URL.", "Не удалось загрузить подписку. Проверьте адрес и сеть.": "Could not load the subscription. Check the URL and connection.", "Отключите мост перед сменой подписки.": "Disconnect before changing the subscription.", "Выберите сервер из подписки.": "Select a server from your subscription.", "Не удалось запустить мост.": "Could not start Bridge.", "Соединение прервано.": "Connection interrupted.", "Неизвестная палитра.": "Unknown palette.", "Не удалось сохранить палитру.": "Could not save the palette.", "Не удалось прочитать буфер обмена.": "Could not read the clipboard.", "В буфере нет текста.": "The clipboard contains no text.", "Проверьте формат подписки.": "Check the subscription format.", "В подписке нет поддерживаемых серверов VLESS или Trojan.": "The subscription contains no supported VLESS or Trojan servers.", "Ожидается список ссылок VLESS или Trojan, текстом или в Base64.": "Expected VLESS or Trojan links in plain text or Base64.", "Подписка больше 4 МБ.": "The subscription exceeds 4 MB.", "Подписка перенаправляет на незащищённый адрес.": "The subscription redirects to an insecure URL.", "Сервис подписки вернул ошибку HTTP ": "Subscription service returned HTTP error ", "Android не создал VPN-интерфейс.": "Android could not create the VPN interface.", "Не удалось запустить ядро VPN.": "Could not start the VPN core.", "Ядро VPN не отвечает.": "The VPN core is not responding.", "Не удалось запустить VPN.": "Could not start the VPN.", "Разрешение VPN отклонено.": "VPN permission was denied.", "Проверьте параметры.": "Check the settings.", "Недоступное действие.": "Action unavailable.", "Xray не открыл порт. Проверьте параметры выбранного сервера.": "Xray could not open the port. Check the selected server settings.", "Порт ": "Port ", " занят. Закройте другой прокси и повторите.": " is busy. Close the other proxy and try again.", "Ядро Xray отсутствует. Выполните python setup_core.py в папке проекта.": "Xray is missing. Run python setup_core.py in the project folder.", "macOS не включила системный прокси. Проверьте активное подключение и разрешите изменение настроек сети.": "macOS could not enable the system proxy. Check your network and allow changes to network settings.", "Проверьте настройки прокси активной сети в macOS: восстановление прервалось.": "Check the active network proxy settings in macOS. Restoration was interrupted."};
 const originalText=new WeakMap();
 function translated(text){
  let result=text;
@@ -78,7 +89,14 @@ function render(s){
  const t=s.seconds;el('timer').textContent=[Math.floor(t/3600),Math.floor(t/60)%60,t%60].map(n=>String(n).padStart(2,'0')).join(':');
  let n=s.bytes,i=0,units=language==='en'?['B','KB','MB','GB','TB']:['Б','КБ','МБ','ГБ','ТБ'];while(n>=1000&&i<4){n/=1000;i++}
  el('traffic').textContent=s.fresh===false?'—':n.toLocaleString(language==='en'?'en-US':'ru-RU',{maximumFractionDigits:i&&n<100?1:0})+' '+units[i];
- }if(s.error)el('note').textContent=s.error;controls()
+ }
+ if(s.rates)el('rates').textContent='↓ '+bytes(s.rates.download)+'/s · ↑ '+bytes(s.rates.upload)+'/s';
+ const info=s.subscription||{},parts=[];
+ if(info.expire)parts.push((language==='en'?'Expires: ':'До: ')+new Date(info.expire*1000).toLocaleDateString());
+ if(info.total)parts.push((language==='en'?'Remaining: ':'Осталось: ')+bytes(Math.max(0,info.total-(info.upload||0)-(info.download||0))));
+ el('subscription').textContent=parts.join(' · ');
+ el('alerts').textContent=(s.warnings||[]).join(' ');
+ if(s.error)el('note').textContent=s.error;controls()
 }
 async function run(work){
  if(busy)return;busy=true;controls();
@@ -91,7 +109,7 @@ el('load').onclick=()=>run(async()=>{
  if(s.error){render(s);return}
  const menu=el('nodes');menu.replaceChildren();
  for(const name of s.names)menu.add(new Option(name,name));
- loaded=s.names.length>0;el('note').textContent=s.skipped?'Пропущено записей: '+s.skipped:'';
+ loaded=s.names.length>0;await refreshFavorites();render(await api.snapshot());el('note').textContent=s.skipped?'Пропущено записей: '+s.skipped:'';
 });
 el('url').onkeydown=e=>{if(e.key==='Enter')el('load').click()};
 el('action').onclick=()=>run(async()=>{
@@ -105,9 +123,56 @@ async function ready(backend){
  api=backend;
  try{setLanguage((await api.language(null)).name);applyPalette((await api.palette(null)).name);
  const s=await api.servers();if(s.names.length){el('nodes').replaceChildren(...s.names.map(n=>new Option(n,n)));loaded=true}
- render(await api.snapshot())}finally{busy=false;controls()}
- setInterval(async()=>{if(busy||!active||polling)return;polling=true;try{const s=await api.snapshot();if(!busy&&active)render(s)}finally{polling=false}},1000)
+ await loadPreferences();await refreshFavorites();render(await api.snapshot())}finally{busy=false;controls()}
+ setInterval(async()=>{if(busy||!active||polling||Date.now()-lastPoll<(preferences.power_saving?5000:1000))return;lastPoll=Date.now();polling=true;try{const s=await api.snapshot();if(!busy&&active)render(s)}finally{polling=false}},1000)
 }
+function bytes(n){let i=0;const units=['B','KB','MB','GB','TB'];while(n>=1000&&i<4){n/=1000;i++}return n.toFixed(i?1:0)+' '+units[i]}
+async function loadPreferences(){
+ preferences=await api.preferences(null);
+ document.body.classList.toggle('private',preferences.presentation);
+ document.querySelector('main').style.zoom=preferences.scale/100;
+ el('presentation').checked=preferences.presentation;el('power_saving').checked=preferences.power_saving;el('scale').value=preferences.scale;
+ for(const b of document.querySelectorAll('.pin'))b.textContent=preferences.pinned.includes(b.dataset.pin)?'★':'☆';
+ const rows=[...el('extraSettings').children];
+ rows.sort((a,b)=>Number(preferences.pinned.includes(b.querySelector('.pin').dataset.pin))-Number(preferences.pinned.includes(a.querySelector('.pin').dataset.pin)));
+ rows.forEach(r=>el('extraSettings').append(r));
+}
+for(const id of ['presentation','power_saving','scale'])el(id).onchange=async()=>{
+ const result=await api.preferences({[id]:id==='scale'?Number(el(id).value):el(id).checked});
+ if(result.error){el('settingNote').textContent=result.error;return}await loadPreferences();
+};
+for(const b of document.querySelectorAll('.pin'))b.onclick=async()=>{
+ let pins=preferences.pinned.slice(),id=b.dataset.pin;
+ await api.preferences({pinned:pins.includes(id)?pins.filter(v=>v!==id):pins.concat(id)});await loadPreferences();
+};
+el('settingsSearch').oninput=()=>{
+ const q=el('settingsSearch').value.toLowerCase();
+ for(const row of el('extraSettings').children)row.hidden=!(row.textContent+' '+row.dataset.search).toLowerCase().includes(q);
+ el('language').hidden=!!q&&!('language язык english русский'.includes(q));
+ el('colors').hidden=!!q&&!('palette color палитра цвет'.includes(q));
+};
+async function refreshFavorites(){
+ if(!loaded)return;
+ const result=await api.favorite(null),selected=el('nodes').value;
+ const options=[...el('nodes').options];
+ options.sort((a,b)=>Number(result.names.includes(b.value))-Number(result.names.includes(a.value)));
+ options.forEach(o=>{o.textContent=(result.names.includes(o.value)?'★ ':'')+o.value;el('nodes').append(o)});
+ el('nodes').value=selected;el('favorite').textContent=result.names.includes(selected)?'★ Избранное':'☆ Избранное';
+}
+el('favorite').onclick=async()=>{if(!loaded)return;await api.favorite(el('nodes').value);await refreshFavorites()};
+el('nodes').onchange=refreshFavorites;
+el('undo').onclick=async()=>{const s=await api.undo();el('settingNote').textContent=s.error||'';await loadPreferences();await refreshFavorites()};
+el('reset').onclick=async()=>{
+ if(!confirm(language==='en'?'Disconnect and delete all Bridge data?':'Отключить VPN и удалить все данные Bridge?'))return;
+ const s=await api.reset();if(s.error){el('settingNote').textContent=s.error;return}loaded=false;active=false;el('url').value='';el('nodes').replaceChildren(new Option('Загрузите подписку',''));el('history').replaceChildren();el('totals').textContent='';
+ applyPalette('sage');setLanguage('ru');await loadPreferences();render(await api.snapshot());
+};
+el('settingsTab').onclick=async()=>{
+ tab(true);const report=await api.report();
+ el('totals').textContent=(language==='en'?'Today: ':'Сегодня: ')+bytes(report.today)+' · '+(language==='en'?'Month: ':'Месяц: ')+bytes(report.month);
+ el('history').replaceChildren();
+ for(const entry of report.history){const row=document.createElement('p');row.textContent=new Date(entry.started*1000).toLocaleString()+' · '+entry.server+' · '+bytes(entry.bytes);el('history').append(row)}
+};
 controls();
 if(window.BridgeNative){
  let seq=0;const waiting=new Map();

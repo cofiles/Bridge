@@ -39,7 +39,7 @@ class Connection:
 
         self.started = time.monotonic()
 
-    def traffic(self):
+    def counters(self):
         client = http.client.HTTPConnection("127.0.0.1", self.metrics_port, timeout=0.5)
         try:
             client.request("GET", "/debug/vars")
@@ -47,11 +47,15 @@ class Connection:
             if response.status != 200:
                 return None
             inbound = json.load(response)["stats"]["inbound"]["bridge"]
-            return int(inbound["uplink"]) + int(inbound["downlink"])
+            return {"upload": int(inbound["uplink"]), "download": int(inbound["downlink"])}
         except (OSError, http.client.HTTPException, ValueError, TypeError, KeyError):
             return None
         finally:
             client.close()
+
+    def traffic(self):
+        values = self.counters()
+        return sum(values.values()) if values is not None else None
 
     def running(self):
         return self.core.poll() is None and (self.helper is None or self.helper.poll() is None)

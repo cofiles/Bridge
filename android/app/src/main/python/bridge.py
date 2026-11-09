@@ -91,15 +91,24 @@ def parse_subscription(data):
     return nodes, skipped
 
 
-def load_subscription(url):
+def load_subscription(url, with_metadata=False):
     if urlsplit(url).scheme != "https" or not urlsplit(url).hostname:
         raise ValueError("Введите HTTPS-ссылку на подписку.")
     opener = build_opener(SecureRedirect(), HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())))
     with opener.open(Request(url, headers={"User-Agent": "Bridge/1.0"}), timeout=15) as response:
         data = response.read(LIMIT + 1)
+        metadata = {}
+        for item in response.headers.get("subscription-userinfo", "").split(";"):
+            key, separator, value = item.strip().partition("=")
+            if separator and key in ("upload", "download", "total", "expire"):
+                try:
+                    metadata[key] = max(0, int(value))
+                except ValueError:
+                    pass
     if len(data) > LIMIT:
         raise ValueError("Подписка больше 4 МБ.")
-    return parse_subscription(data)
+    result = parse_subscription(data)
+    return (*result, metadata) if with_metadata else result
 
 
 def configuration(outbound, port=PORT, metrics_port=None):

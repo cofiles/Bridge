@@ -4,7 +4,7 @@ import zipfile
 
 root = Path(__file__).resolve().parent
 files = [
-    "README.md", "requirements.txt", ".gitignore", "app.py", "controller.py",
+    "activity_store.py", "README.md", "requirements.txt", ".gitignore", "app.py", "controller.py",
     "bridge.py", "connection.py", "mac_proxy.m", "build.py", "setup_core.py",
     "prepare_android.py", "make_icons.py", "package_source.py",
     "android/settings.gradle", "android/build.gradle", "android/gradle.properties",

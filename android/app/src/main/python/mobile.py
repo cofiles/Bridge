@@ -86,6 +86,6 @@ def connect(vpn, name):
     return json.dumps(api.connect(name))
 
 def call(method, args):
-    if method not in ("load", "palette", "snapshot", "disconnect", "servers", "language"):
+    if method not in ("load", "palette", "snapshot", "disconnect", "servers", "language", "preferences", "favorite", "undo", "report", "reset"):
         return json.dumps({"error":"Недоступное действие."})
     return json.dumps(getattr(api, method)(*json.loads(args)))

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'unsafe-eval'">
+<style>
+*{box-sizing:border-box}
+:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,Roboto,"Segoe UI",sans-serif;--h:149;--bg:hsl(var(--h),18%,97%);--ink:hsl(var(--h),18%,14%);--muted:hsl(var(--h),10%,33%);--card:hsl(var(--h),21%,91%);--soft:hsl(var(--h),34%,84%);--accent:hsl(var(--h),35%,32%);--on:white;--line:hsl(var(--h),11%,67%)}
+@media(prefers-color-scheme:dark){:root{--bg:hsl(var(--h),9%,10%);--ink:hsl(var(--h),15%,91%);--muted:hsl(var(--h),10%,76%);--card:hsl(var(--h),12%,17%);--soft:hsl(var(--h),22%,25%);--accent:hsl(var(--h),40%,73%);--on:hsl(var(--h),44%,13%);--line:hsl(var(--h),9%,44%)}}
+body{margin:0;background:var(--bg);color:var(--ink)}main{max-width:540px;margin:auto;padding:27px 24px}header,.row,nav,.status,.brand,.palette{display:flex;align-items:center}header{justify-content:space-between;margin-bottom:22px}.brand{gap:9px;font-weight:650;font-size:29px;letter-spacing:-1.3px}.brand svg{width:31px;height:31px;color:#000;background:#f7f8f3;border-radius:8px;padding:3px}.status{gap:7px;font-size:12px;color:var(--muted)}.dot{width:8px;height:8px;border-radius:50%;background:var(--line)}.online .dot{background:var(--accent)}
+button,input,select{font:inherit;color:inherit}button{cursor:pointer;border:0}button:disabled{opacity:.53;cursor:default}button:hover:enabled{filter:brightness(.96)}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+nav{gap:3px;background:var(--card);padding:4px;border-radius:24px;margin-bottom:22px}nav button{flex:1;border-radius:20px;padding:10px 5px;background:transparent;font-weight:550;font-size:14px}nav button[aria-pressed=true]{background:var(--soft)}
+.metrics{display:grid;grid-template-columns:1.1fr 1fr;padding:22px 19px;background:var(--card);border-radius:24px;gap:10px;margin-bottom:24px}.metric+.metric{border-left:1px solid var(--line);padding-left:18px}.metric-head,label{font-size:13px;font-weight:560;color:var(--muted)}.value{margin-top:6px;font-size:clamp(24px,6.5vw,32px);font-variant-numeric:tabular-nums;letter-spacing:-1px}
+label{display:block;margin:0 0 8px}input,select{width:100%;min-width:0;height:45px;padding:0 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line);font-size:15px}.row{gap:8px}.soft{height:44px;padding:0 14px;border-radius:18px;background:var(--soft);font-size:14px;font-weight:560}.buttons{display:flex;gap:7px;margin-top:8px}.buttons button{height:38px}.server{margin-top:20px}.action{width:100%;margin-top:21px;background:var(--accent);color:var(--on);height:46px;border-radius:28px;font-weight:600}.note{font-size:13px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}.note:empty{display:none}
+h2{font-size:21px;margin:0 0 16px}.palette{width:100%;padding:11px 14px;border-radius:16px;gap:12px;background:transparent;text-align:left}.palette[aria-pressed=true]{background:var(--card)}.sample{width:38px;height:30px;border-radius:15px;background:linear-gradient(120deg,hsl(var(--shade),39%,35%) 50%,hsl(var(--shade),38%,77%) 50%)}.check{margin-left:auto;color:var(--accent)}[hidden]{display:none!important}
+@media(max-width:370px){main{padding:20px 16px}}
+.android{color-scheme:dark;--bg:hsl(var(--h),9%,10%);--ink:hsl(var(--h),15%,91%);--muted:hsl(var(--h),10%,76%);--card:hsl(var(--h),12%,17%);--soft:hsl(var(--h),22%,25%);--accent:hsl(var(--h),40%,73%);--on:hsl(var(--h),44%,13%);--line:hsl(var(--h),9%,44%)}
+</style></head><body><main>
+<header><div class="brand"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3 24V17C9 17 13 12 16 5C19 12 23 17 29 17V24M3 20H29M10 15V20M16 7V20M22 15V20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Bridge</div><div class="status" role="status"><i class="dot"></i><span id="state">Отключено</span></div></header>
+<nav aria-label="Разделы"><button aria-pressed="true" id="homeTab">Подключение</button><button aria-pressed="false" id="settingsTab">Настройки</button></nav>
+<div id="home"><section class="metrics" aria-label="Статистика сеанса"><div class="metric"><div class="metric-head">Время сеанса</div><div class="value" id="timer">00:00:00</div></div><div class="metric"><div class="metric-head">Трафик</div><div class="value" id="traffic">0 Б</div></div></section>
+<label for="url">Ссылка подписки</label><input id="url" type="url" placeholder="https://…" autocomplete="off" spellcheck="false"><div class="buttons"><button class="soft" id="paste">Вставить</button><button class="soft" id="load">Загрузить</button></div>
+<label class="server" for="nodes">Сервер</label><select disabled id="nodes"><option>Загрузите подписку</option></select><button class="action" id="action" disabled><span id="verb">Подключить</span></button><p class="note" role="status" id="note"></p></div>
+<section hidden id="settings"><h2>Палитра</h2><div id="colors"></div><p class="note" role="status" id="settingNote"></p></section>
+</main><script>
+const el=id=>document.getElementById(id);
+let api,busy=true,active=false,loaded=false,polling=false;
+const colors={sage:['Шалфей',149],ocean:['Океан',210],lilac:['Сирень',271],clay:['Терракота',18],rose:['Роза',340],sand:['Песок',48]};
+function applyPalette(id){
+ if(!colors[id])id='sage';
+ document.documentElement.style.setProperty('--h',colors[id][1]);
+ for(const b of el('colors').children){b.setAttribute('aria-pressed',String(b.dataset.id===id));b.lastChild.textContent=b.dataset.id===id?'✓':''}
+}
+for(const [id,[name,hue]] of Object.entries(colors)){
+ const b=document.createElement('button');b.className='palette';b.dataset.id=id;b.style.setProperty('--shade',hue);
+ const swatch=document.createElement('span');swatch.className='sample';const check=document.createElement('span');check.className='check';
+ b.append(swatch,name,check);b.onclick=async()=>{if(!api)return;const s=await api.palette(id);if(s.error)el('settingNote').textContent=s.error;else applyPalette(s.name)};el('colors').append(b);
+}
+applyPalette('sage');
+function tab(settings){el('settings').hidden=!settings;el('home').hidden=settings;el('homeTab').setAttribute('aria-pressed',!settings);el('settingsTab').setAttribute('aria-pressed',settings)}
+el('homeTab').onclick=()=>tab(false);el('settingsTab').onclick=()=>tab(true);
+function controls(){el('url').disabled=el('load').disabled=el('paste').disabled=busy||active;el('nodes').disabled=busy||active||!loaded;el('action').disabled=busy||(!loaded&&!active)}
+function render(s){
+ if(typeof s.active==='boolean'){
+ active=s.active;document.body.classList.toggle('online',active);el('state').textContent=active?'Подключено':'Отключено';el('verb').textContent=active?'Отключить':'Подключить';
+ const t=s.seconds;el('timer').textContent=[Math.floor(t/3600),Math.floor(t/60)%60,t%60].map(n=>String(n).padStart(2,'0')).join(':');
+ let n=s.bytes,i=0,units=['Б','КБ','МБ','ГБ','ТБ'];while(n>=1000&&i<4){n/=1000;i++}
+ el('traffic').textContent=s.fresh===false?'—':n.toLocaleString('ru-RU',{maximumFractionDigits:i&&n<100?1:0})+' '+units[i];
+ }if(s.error)el('note').textContent=s.error;controls()
+}
+async function run(work){
+ if(busy)return;busy=true;controls();
+ try{await work()}catch{el('note').textContent='Не удалось выполнить действие. Повторите попытку.'}
+ finally{busy=false;controls()}
+}
+el('load').onclick=()=>run(async()=>{
+ el('note').textContent='Загружаем подписку…';
+ const s=await api.load(el('url').value);
+ if(s.error){render(s);return}
+ const menu=el('nodes');menu.replaceChildren();
+ for(const name of s.names)menu.add(new Option(name,name));
+ loaded=s.names.length>0;el('note').textContent=s.skipped?'Пропущено записей: '+s.skipped:'';
+});
+el('url').onkeydown=e=>{if(e.key==='Enter')el('load').click()};
+el('action').onclick=()=>run(async()=>{
+ el('state').textContent=active?'Отключаем…':'Подключаем…';
+ const s=active?await api.disconnect():await api.connect(el('nodes').value);
+ el('state').textContent='Отключено';el('note').textContent=s.active?(window.BridgeNative?'VPN включён':(s.mac?'Системный прокси':'HTTP-прокси')+' · 127.0.0.1:'+s.port):'';
+ render(s);
+});
+el('paste').onclick=()=>run(async()=>{const s=await api.paste();if(s.error){render(s);return}el('url').value=s.text.trim();el('note').textContent=''});
+async function ready(backend){
+ api=backend;
+ try{applyPalette((await api.palette(null)).name);
+ const s=await api.servers();if(s.names.length){el('nodes').replaceChildren(...s.names.map(n=>new Option(n,n)));loaded=true}
+ render(await api.snapshot())}finally{busy=false;controls()}
+ setInterval(async()=>{if(busy||!active||polling)return;polling=true;try{const s=await api.snapshot();if(!busy&&active)render(s)}finally{polling=false}},1000)
+}
+controls();
+if(window.BridgeNative){
+ let seq=0;const waiting=new Map();
+ window.bridgeReply=(id,result)=>{if(waiting.has(id)){waiting.get(id)(result);waiting.delete(id)}};
+ ready(new Proxy({},{get:(_,method)=>(...args)=>new Promise(resolve=>{const id=++seq;waiting.set(id,resolve);BridgeNative.call(id,method,JSON.stringify(args))})}));
+}else window.addEventListener('pywebviewready',()=>ready(pywebview.api));
+</script></body></html>

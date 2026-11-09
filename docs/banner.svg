@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="380" viewBox="0 0 1280 380">
+<rect width="1280" height="380" rx="32" fill="#e9eee6"/>
+<circle cx="1190" cy="20" r="280" fill="#d4e4d8"/><circle cx="1240" cy="340" r="220" fill="#c4d9cd"/>
+<rect x="76" y="100" width="180" height="180" rx="44" fill="#f7f8f3"/>
+<g transform="translate(98 115) scale(4.2)" fill="none" stroke="#101411" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 24V17C9 17 13 12 16 5C19 12 23 17 29 17V24M3 20H29M10 15V20M16 5V20M22 15V20"/></g>
+<text x="305" y="176" font-family="Arial,sans-serif" font-size="76" font-weight="700" fill="#1a2921">Bridge</text>
+<text x="310" y="224" font-family="Arial,sans-serif" font-size="25" fill="#45594b">Your connection. A simpler interface.</text>
+<text x="310" y="266" font-family="Arial,sans-serif" font-size="19" fill="#45594b">Windows · macOS · Android</text>
+</svg>

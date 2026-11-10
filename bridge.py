@@ -1,6 +1,9 @@
 import base64
 import binascii
 import json
+import gzip
+import zlib
+import io
 import os
 import socket
 import ssl
@@ -8,7 +11,7 @@ import subprocess
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlsplit
-from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, ProxyHandler, build_opener
 
 import certifi
 
@@ -91,12 +94,26 @@ def parse_subscription(data):
     return nodes, skipped
 
 
-def load_subscription(url, with_metadata=False):
+def subscription_tls_context():
+    # Keep platform trust (including managed Windows roots) and the bundled public CAs.
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
+    return context
+
+
+def load_subscription(url, with_metadata=False, use_system_proxy=True):
+    url = url.strip().lstrip("\ufeff").strip()
     if urlsplit(url).scheme != "https" or not urlsplit(url).hostname:
         raise ValueError("Введите HTTPS-ссылку на подписку.")
-    opener = build_opener(SecureRedirect(), HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())))
-    with opener.open(Request(url, headers={"User-Agent": "Bridge/1.0"}), timeout=15) as response:
+    handlers = [SecureRedirect(), HTTPSHandler(context=subscription_tls_context())]
+    if not use_system_proxy:
+        handlers.insert(0, ProxyHandler({}))
+    opener = build_opener(*handlers)
+    request = Request(url, headers={"User-Agent":"Bridge/1.3.1", "Accept":"text/plain, application/octet-stream;q=0.9, */*;q=0.1", "Accept-Encoding":"gzip"})
+    with opener.open(request, timeout=20) as response:
         data = response.read(LIMIT + 1)
+        encoding = response.headers.get("Content-Encoding", "").strip().lower()
+        content_type = response.headers.get("Content-Type", "").lower()
         metadata = {}
         for item in response.headers.get("subscription-userinfo", "").split(";"):
             key, separator, value = item.strip().partition("=")
@@ -107,6 +124,20 @@ def load_subscription(url, with_metadata=False):
                     pass
     if len(data) > LIMIT:
         raise ValueError("Подписка больше 4 МБ.")
+    if encoding == "gzip":
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as compressed:
+                data = compressed.read(LIMIT+1)
+        except (OSError, EOFError, zlib.error):
+            raise ValueError("Повреждён сжатый ответ подписки. [SUB_GZIP]") from None
+    elif encoding not in ("", "identity"):
+        raise ValueError("Неизвестное сжатие ответа подписки. [SUB_ENCODING]")
+    if len(data) > LIMIT:
+        raise ValueError("Подписка больше 4 МБ.")
+    if not data.strip():
+        raise ValueError("Сервис вернул пустую подписку. [SUB_EMPTY]")
+    if "text/html" in content_type or data.lstrip().lower().startswith((b"<!doctype html",b"<html")):
+        raise ValueError("Сервис вернул веб-страницу вместо подписки. Проверьте ссылку и доступ к сервису. [SUB_HTML]")
     result = parse_subscription(data)
     return (*result, metadata) if with_metadata else result
 

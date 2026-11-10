@@ -6,7 +6,7 @@ import os
 import tempfile
 import hashlib
 from activity_store import ActivityStore
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from lifecycle import Attempt, Cancelled
 import socket
 import ssl
@@ -212,15 +212,35 @@ class Bridge:
             records = self._store.get("quality", {})
             return max(passed,key=lambda name:quality.score(records[quality.key(self._nodes[name])]))
 
-    def load(self, url):
+    @staticmethod
+    def _subscription_network_error(error):
+        reason = error.reason if isinstance(error, URLError) else error
+        if isinstance(reason, ssl.SSLError):
+            return "Не удалось проверить HTTPS-сертификат сервиса подписки. Проверьте дату и настройки антивируса. [SUB_TLS]"
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            return "Сервис подписки не ответил вовремя. Повторите загрузку. [SUB_TIMEOUT]"
+        if isinstance(reason, socket.gaierror):
+            return "Не удалось определить адрес сервиса подписки. Проверьте DNS. [SUB_DNS]"
+        if isinstance(reason, ConnectionRefusedError):
+            return "Сервис или системный прокси отклонил соединение. Проверьте настройки прокси Windows. [SUB_REFUSED]"
+        return "Не удалось получить подписку. Проверьте сеть и системный прокси. [SUB_NETWORK]"
+
+    def load(self, url, use_system_proxy=True):
+        with self._lock:
+            if self._closed or self._connection or self._attempt:
+                return {"error": "Отключите мост перед сменой подписки."}
         try:
-            nodes, skipped, metadata = load_subscription(url.strip(), with_metadata=True)
+            url = url.strip().lstrip("\ufeff").strip()
+            nodes, skipped, metadata = load_subscription(url, with_metadata=True, use_system_proxy=use_system_proxy)
         except HTTPError as error:
-            return {"error": f"Сервис подписки вернул ошибку HTTP {error.code}."}
+            return {"error": f"Сервис подписки вернул ошибку HTTP {error.code}. [SUB_HTTP_{error.code}]"}
+        except UnicodeError:
+            return {"error":"Не удалось прочитать текст подписки. [SUB_TEXT]"}
         except ValueError as error:
-            return {"error": str(error) if str(error).startswith(("Введите", "Ожидается", "В подписке", "Подписка ")) else "Проверьте формат подписки."}
-        except OSError:
-            return {"error": "Не удалось загрузить подписку. Проверьте адрес и сеть."}
+            allowed = ("Введите", "Ожидается", "В подписке", "Подписка ", "Повреждён", "Неизвестное", "Сервис вернул")
+            return {"error": str(error) if str(error).startswith(allowed) else "Проверьте формат подписки. [SUB_FORMAT]"}
+        except (OSError, http.client.HTTPException, EOFError) as error:
+            return {"error": self._subscription_network_error(error)}
         with self._lock:
             if self._closed or self._connection or self._attempt:
                 return {"error": "Отключите мост перед сменой подписки."}
